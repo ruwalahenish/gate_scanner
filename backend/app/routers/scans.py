@@ -1,3 +1,4 @@
+import asyncio
 from uuid import uuid4, UUID
 from fastapi import APIRouter, Depends, HTTPException
 import asyncpg
@@ -31,14 +32,25 @@ async def trigger_scan(
     conn: asyncpg.Connection = Depends(db_conn),
     redis: aioredis.Redis = Depends(redis_client),
 ):
-    # Prevent concurrent scans via Redis lock
-    locked = await redis.set(SCAN_LOCK_KEY, "1", nx=True, ex=SCAN_LOCK_TTL)
-    if not locked:
-        raise HTTPException(status_code=409, detail="A scan is already in progress. Try again later.")
+    # Prevent concurrent scans via Redis lock (skip gracefully if Redis unavailable)
+    try:
+        locked = await redis.set(SCAN_LOCK_KEY, "1", nx=True, ex=SCAN_LOCK_TTL)
+        if not locked:
+            raise HTTPException(status_code=409, detail="A scan is already in progress. Try again later.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # Redis unavailable — skip distributed lock
 
     scan_id = uuid4()
     await create_scan(conn, scan_id, body.mode)
-    run_scan_task.delay(str(scan_id), body.universe, body.mode)
+
+    # Dispatch to Celery worker; fall back to asyncio background task if broker unavailable
+    try:
+        run_scan_task.delay(str(scan_id), body.universe, body.mode)
+    except Exception:
+        from app.tasks.scanner_tasks import _run_scan_async
+        asyncio.create_task(_run_scan_async(str(scan_id), body.universe, body.mode))
 
     return TriggerScanResponse(scan_id=str(scan_id))
 

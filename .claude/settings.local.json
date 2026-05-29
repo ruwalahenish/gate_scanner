@@ -12,7 +12,8 @@
       "Bash(touch /mnt/d/gate-scanner/README.md && echo \"created\")",
       "Read(//mnt/**)",
       "Bash(ls /mnt/)",
-      "PowerShell(New-Item -ItemType File -Path \"d:\\\\gate-scanner\\\\README.md\" -Force)"
+      "PowerShell(New-Item -ItemType File -Path \"d:\\\\gate-scanner\\\\README.md\" -Force)",
+      "PowerShell(Test-NetConnection -ComputerName localhost -Port 6379 -InformationLevel Quiet 2>$null)"
     ],
     "additionalDirectories": [
       "\\mnt\\d\\gate-scanner"

@@ -42,13 +42,18 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
     sid = UUID(scan_id)
     t0 = time.perf_counter()
 
+    async def _publish(channel: str, payload: dict):
+        try:
+            await redis.publish(channel, json.dumps(payload))
+        except Exception:
+            pass  # Redis unavailable — skip pub/sub broadcast
+
     try:
-        # Broadcast scan started
-        await redis.publish("scan:progress", json.dumps({
+        await _publish("scan:progress", {
             "type": "scan.started",
             "payload": {"scan_id": scan_id},
             "timestamp": _now(),
-        }))
+        })
 
         results = await run_scan_async(universe, mode)
         duration = time.perf_counter() - t0
@@ -61,18 +66,20 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
                 duration_sec=round(duration, 2),
             )
 
-        # Broadcast complete
         top = [r.get("signal") or {} for r in results[:5] if r.get("signal")]
-        await redis.publish("scan:complete", json.dumps({
+        await _publish("scan:complete", {
             "type": "scan.complete",
             "payload": {"scan_id": scan_id, "signals_count": len(results), "top_signals": top},
             "timestamp": _now(),
-        }))
+        })
         log.info("scan_completed", scan_id=scan_id, signals=len(results), duration=round(duration, 1))
 
     finally:
         await close_pool()
-        await redis.aclose()
+        try:
+            await redis.aclose()
+        except Exception:
+            pass
 
 
 async def _mark_scan_failed(scan_id: str, error: str):
