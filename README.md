@@ -32,6 +32,17 @@
   - [Daily EOD Scan](#2-daily-eod-scan-recommended)
   - [Backtesting](#3-backtesting)
   - [Automated Scheduling](#4-automated-scheduling)
+- [Trading Platform — Web Interface](#-trading-platform--web-interface)
+  - [Platform Prerequisites](#platform-prerequisites)
+  - [Step 1 — Create NeonDB Database](#step-1--create-neondb-database-free)
+  - [Step 2 — Configure Environment](#step-2--configure-environment)
+  - [Step 3 — Run Database Migration](#step-3--run-database-migration)
+  - [Step 4 — Start Redis](#step-4--start-redis-docker-free)
+  - [Step 5 — Install Dependencies](#step-5--install-dependencies)
+  - [Step 6 — Start All Services](#step-6--start-all-services)
+  - [Step 7 — Verify & First Scan](#step-7--verify--first-scan)
+  - [Quick Restart](#quick-restart-next-time)
+  - [Troubleshooting](#platform-troubleshooting)
 - [Output Files](#output-files)
 - [Project Structure](#project-structure)
 - [Configuration Reference](#configuration-reference)
@@ -365,6 +376,204 @@ python -m gate_scanner.daily_scanner
 
 ---
 
+## 🖥️ Trading Platform — Web Interface
+
+The GATE Trading Intelligence Platform wraps the scanner engines in a full-stack web application: **Next.js 15 frontend + FastAPI backend + NeonDB + Redis**.
+
+> **All free services.** NeonDB free tier (0.5 GB) + local Docker Redis + optional Telegram bot for alerts.
+
+---
+
+### Platform Prerequisites
+
+Install these once before first run:
+
+| Tool | Version | Purpose | Download |
+|------|---------|---------|----------|
+| **Node.js** | 20 LTS+ | Next.js frontend | [nodejs.org](https://nodejs.org) |
+| **Docker Desktop** | Latest | Local Redis container | [docker.com](https://www.docker.com/products/docker-desktop/) |
+| **Python** | 3.12+ | Already present in venv | — |
+| **NeonDB account** | Free | PostgreSQL database | [neon.tech](https://neon.tech) |
+| **psql** (PostgreSQL client) | Any | Run migration SQL | Bundled with [PostgreSQL](https://www.postgresql.org/download/) |
+
+---
+
+### Step 1 — Create NeonDB Database (free)
+
+1. Sign up at [neon.tech](https://neon.tech) → create a project named `gate-platform`
+2. Copy the **Connection string** from the dashboard — it looks like:
+
+```
+postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require
+```
+
+---
+
+### Step 2 — Configure Environment
+
+```powershell
+# From the project root
+Copy-Item .env.example .env
+Copy-Item apps\web\.env.local.example apps\web\.env.local
+```
+
+Open `.env` and set your NeonDB URL (all other defaults work for local dev):
+
+```env
+DATABASE_URL=postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require
+REDIS_URL=redis://localhost:6379/0
+ALLOWED_ORIGINS=["http://localhost:3000"]
+
+# Telegram alerts — optional, leave blank to disable
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+
+GATE_CACHE_DIR=../.gate_cache
+SCAN_EXECUTOR_WORKERS=4
+```
+
+`apps/web/.env.local` already points to localhost — no changes needed for local development.
+
+---
+
+### Step 3 — Run Database Migration
+
+```powershell
+# Replace the URL with your actual NeonDB connection string
+psql "postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require" `
+     -f backend\migrations\001_initial_schema.sql
+```
+
+You should see `CREATE TABLE`, `CREATE INDEX` lines — that means success. This creates all 11 tables in one shot and seeds the portfolio config row.
+
+---
+
+### Step 4 — Start Redis (Docker, free)
+
+```powershell
+# Pull and start Redis in the background
+docker run -d --name gate-redis -p 6379:6379 redis:7-alpine
+
+# Verify it's running
+docker ps
+```
+
+---
+
+### Step 5 — Install Dependencies
+
+```powershell
+# ── Backend (Python) ─────────────────────────────────────
+# Activate your existing venv
+.\venv\Scripts\Activate.ps1
+
+pip install -r backend\requirements.txt
+
+# ── Frontend (Node.js) ───────────────────────────────────
+cd apps\web
+npm install
+cd ..\..
+```
+
+---
+
+### Step 6 — Start All Services
+
+Open **4 separate PowerShell terminals** from `d:\Henish-QA\gate-scanner`:
+
+**Terminal 1 — FastAPI backend**
+
+```powershell
+.\venv\Scripts\Activate.ps1
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Terminal 2 — Celery worker** (executes scan jobs in the background)
+
+```powershell
+.\venv\Scripts\Activate.ps1
+cd backend
+celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
+```
+
+**Terminal 3 — Celery beat** (schedules the automatic 4:05 PM IST daily scan)
+
+```powershell
+.\venv\Scripts\Activate.ps1
+cd backend
+celery -A app.tasks.celery_app beat --loglevel=info
+```
+
+**Terminal 4 — Next.js frontend**
+
+```powershell
+cd apps\web
+npm run dev
+```
+
+---
+
+### Step 7 — Verify & First Scan
+
+| Check | URL | Expected response |
+|-------|-----|------------------|
+| Backend health | http://localhost:8000/api/health | `{"ok": true}` |
+| API docs (Swagger) | http://localhost:8000/api/docs | Interactive API docs |
+| Frontend | http://localhost:3000 | GATE dashboard |
+
+**Run your first scan:**
+
+1. Open http://localhost:3000
+2. Click **"Run Scan"** in the top bar
+3. Watch the progress bar fill → toast notification appears → signal table populates automatically
+
+---
+
+### Quick Restart (next time)
+
+```powershell
+# Start Redis (if container was stopped)
+docker start gate-redis
+
+# Terminal 1 — Backend
+.\venv\Scripts\Activate.ps1; cd backend; uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Terminal 2 — Celery worker
+.\venv\Scripts\Activate.ps1; cd backend; celery -A app.tasks.celery_app worker --loglevel=info
+
+# Terminal 3 — Celery beat
+.\venv\Scripts\Activate.ps1; cd backend; celery -A app.tasks.celery_app beat --loglevel=info
+
+# Terminal 4 — Frontend
+cd apps\web; npm run dev
+```
+
+Or start everything with Docker Compose (builds all containers automatically):
+
+```powershell
+docker-compose up -d
+
+# View logs
+docker-compose logs -f api worker
+```
+
+---
+
+### Platform Troubleshooting
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `DB pool not initialised` | Wrong `DATABASE_URL` in `.env` | Check the NeonDB connection string |
+| `Connection refused :6379` | Redis not running | `docker start gate-redis` |
+| `ModuleNotFoundError: gate_scanner` | Wrong working directory | Run `uvicorn` from inside the `backend/` folder |
+| Port 3000 already in use | Another process on that port | `npm run dev -- -p 3001` |
+| `Celery cannot connect to redis` | Redis container stopped | `docker start gate-redis` |
+| Scan never finishes | Celery worker not running | Check Terminal 2 is active |
+| No signals after scan | Normal on first run | Wait for scan to complete (~5–8 min for daily) |
+
+---
+
 ## Output Files
 
 Every scan generates the following files:
@@ -386,64 +595,173 @@ Every scan generates the following files:
 ## Project Structure
 
 ```
-gate-scanner/
-├── README.md                         # ← You are here
-├── GATE_Strategy.md                  # Full GATE trading strategy documentation
-├── CLAUDE.md                         # AI assistant configuration
-├── requirements.txt                  # Python dependencies
+gate-scanner/                          # Monorepo root
 │
-├── gate_scanner/                     # Main package
-│   ├── __init__.py
-│   ├── main.py                       # CLI entry point & pipeline orchestration
-│   ├── daily_scanner.py              # Daily-timeframe-only scan mode
-│   ├── scheduler.py                  # Automated post-market scheduler
-│   ├── config.py                     # All tunable constants (weights, thresholds, rules)
-│   │
-│   ├── agents/                       # Pipeline stage agents
-│   │   ├── __init__.py
-│   │   ├── scanner_agent.py          # Stage 1: Data fetching & liquidity filter
-│   │   ├── mtf_agent.py              # Stage 2: Multi-timeframe analysis
-│   │   ├── risk_agent.py             # Stage 3: Signal building & risk checks
-│   │   ├── ranking_agent.py          # Stage 4: Scoring & classification
-│   │   └── report_agent.py           # Stage 5: Report generation
-│   │
-│   ├── ema_engine.py                 # EMA stack analysis, correction depth, bounce validation
-│   ├── contraction_engine.py         # 6-component GATE score computation
-│   ├── structure_engine.py           # Trend direction, phase detection, correction type
-│   ├── signal_engine.py              # Entry/SL/target calculation, confidence, quality flags
-│   ├── multi_timeframe.py            # MTF alignment, leading/confirmation TF detection
-│   ├── ranking_engine.py             # Composite rank score formula
-│   ├── classifier.py                 # Category classification logic
-│   ├── indicators.py                 # Technical indicators (EMA, ATR, BB, ADX, Fibonacci)
-│   ├── data_fetcher.py               # yfinance wrapper with Parquet disk cache
-│   ├── reporting.py                  # Console & file output (CSV, JSON)
-│   ├── charting.py                   # Plotly interactive chart builder
-│   ├── scan_report.py                # HTML report generator (dark theme)
-│   │
-│   ├── universe/                     # Stock universe management
-│   │   ├── __init__.py
-│   │   ├── nse_universe.py           # NSE/BSE symbol lists (static + live fetch)
-│   │   └── filters.py                # Universe filtering (sector, F&O, exclude list)
-│   │
-│   └── backtester/                   # Walk-forward backtesting engine
-│       ├── __init__.py
-│       ├── engine.py                 # Backtest simulation loop
-│       ├── portfolio.py              # Portfolio & position management
-│       ├── trade.py                  # Trade object model
-│       ├── metrics.py                # Performance metrics (CAGR, Sharpe, drawdown)
-│       └── report.py                 # Backtest HTML report + equity curves
+├── .env.example                       # Environment template (copy → .env)
+├── .gitignore
+├── docker-compose.yml                 # One-command start: all 5 services
+├── Makefile                           # Shortcuts: make up / backend / frontend / db-migrate
+├── nginx.conf                         # Production reverse-proxy config (HTTPS + WebSocket)
+├── README.md                          # ← You are here
 │
-├── gate_output/                      # Scan results (auto-generated)
+├── docs/                              # Reference documents
+│   ├── GATE_Strategy.md               # Full GATE trading strategy documentation
+│   ├── PLATFORM_SETUP.md              # Step-by-step platform setup guide
+│   └── Implementation_plan.md         # Full architecture roadmap
+│
+├── gate_scanner/                      # ── Core GATE Engines (never modified) ────────────
+│   ├── config.py                      # All tunable constants (weights, thresholds, rules)
+│   ├── data_fetcher.py                # yfinance wrapper with Parquet disk cache (1h TTL)
+│   ├── indicators.py                  # EMA, ATR, Bollinger, ADX, Fibonacci (pure pandas)
+│   ├── ema_engine.py                  # EMA stack state, correction depth, bounce sequence
+│   ├── contraction_engine.py          # 6-component GATE score (0–100)
+│   ├── structure_engine.py            # Trend direction, phase, correction type
+│   ├── signal_engine.py               # Entry / SL / T1-T3 / confidence / trailing plan
+│   ├── multi_timeframe.py             # Leading TF, confirmation TF, MTF alignment %
+│   ├── ranking_engine.py              # Composite rank score formula
+│   ├── classifier.py                  # INVESTMENT / SWING / POSITIONAL / WATCH / IGNORE
+│   ├── main.py                        # CLI entry point & 5-stage pipeline orchestrator
+│   ├── daily_scanner.py               # EOD daily-timeframe scan mode
+│   ├── scheduler.py                   # Post-market automated scheduler (APScheduler)
+│   ├── reporting.py                   # CSV / JSON / console output
+│   ├── charting.py                    # Plotly interactive charts (offline-capable)
+│   ├── scan_report.py                 # Self-contained HTML report builder
+│   ├── agents/                        # Pipeline stage agents
+│   │   ├── scanner_agent.py           # Stage 1: parallel fetch + liquidity filter
+│   │   ├── mtf_agent.py               # Stage 2: per-TF analysis
+│   │   ├── risk_agent.py              # Stage 3: signal generation + RR validation
+│   │   ├── ranking_agent.py           # Stage 4: rank + classify
+│   │   └── report_agent.py            # Stage 5: CSV / JSON / HTML / charts
+│   ├── backtester/                    # Walk-forward backtesting engine
+│   │   ├── engine.py                  # Simulation loop (no look-ahead bias)
+│   │   ├── portfolio.py               # Position sizing, capital tracking
+│   │   ├── trade.py                   # Trade dataclass (15 fields + computed properties)
+│   │   ├── metrics.py                 # CAGR, Sharpe, max drawdown, monthly returns
+│   │   └── report.py                  # Backtest HTML report + equity curves
+│   └── universe/
+│       ├── nse_universe.py            # NSE/BSE symbol lists (static + live CSV fetch)
+│       └── filters.py                 # UniverseFilter: by sector, F&O, exchange
+│
+├── backend/                           # ── FastAPI Backend ────────────────────────────────
+│   ├── Dockerfile
+│   ├── requirements.txt               # fastapi, asyncpg, redis, celery, pydantic-settings…
+│   ├── migrations/
+│   │   └── 001_initial_schema.sql     # Full NeonDB schema — run once to create all tables
+│   └── app/
+│       ├── main.py                    # App bootstrap: CORS, GZip, WebSocket /ws, startup
+│       ├── config.py                  # Pydantic Settings — reads .env
+│       ├── db.py                      # asyncpg connection pool (no ORM)
+│       ├── redis_client.py            # aioredis singleton
+│       ├── dependencies.py            # FastAPI Depends: db_conn, redis_client
+│       ├── exceptions.py              # Domain exceptions → HTTP status codes
+│       ├── routers/                   # REST API — one file per domain
+│       │   ├── scans.py               # POST /trigger · GET /scans · GET /scans/{id}
+│       │   ├── signals.py             # GET /signals · /{symbol}/analysis · /chart-data
+│       │   ├── portfolio.py           # POST /buy · POST /sell · GET /positions · /summary
+│       │   ├── alerts.py              # CRUD alerts · POST /{id}/dismiss
+│       │   ├── watchlist.py           # GET / POST / DELETE watchlist
+│       │   ├── market.py              # GET /price/{symbol} · GET /prices?symbols=…
+│       │   ├── universe.py            # GET /universe · GET /universe/search
+│       │   └── backtests.py           # POST /run · GET /{id} · /equity-curve · /trades
+│       ├── services/                  # Business logic
+│       │   ├── engine_adapter.py      # Thread-pool wrapper — calls gate_scanner.* engines
+│       │   ├── ws_manager.py          # WebSocket registry + Redis pub/sub listener
+│       │   ├── alert_engine.py        # 60 s polling loop during IST market hours
+│       │   ├── portfolio_service.py   # Paper buy/sell: capital deduction, position CRUD
+│       │   └── price_service.py       # Bulk price fetch (yfinance) with 60 s Redis cache
+│       ├── queries/                   # Raw SQL — asyncpg only, no ORM
+│       │   ├── scans.py
+│       │   ├── signals.py             # Batch insert via asyncpg copy protocol
+│       │   ├── portfolio.py
+│       │   └── alerts.py
+│       ├── models/                    # Pydantic request/response schemas
+│       │   ├── scan.py
+│       │   ├── signal.py
+│       │   ├── portfolio.py
+│       │   └── alert.py
+│       └── tasks/                     # Celery background jobs
+│           ├── celery_app.py          # Config + Beat schedule (4:05 PM IST daily)
+│           ├── scanner_tasks.py       # run_scan_task → pipeline → DB → Redis pub/sub
+│           └── backtest_tasks.py      # run_backtest_task → backtester → DB
+│
+├── apps/                              # ── Frontend ───────────────────────────────────────
+│   └── web/                           # Next.js 15 App Router
+│       ├── Dockerfile
+│       ├── next.config.ts
+│       ├── tsconfig.json
+│       ├── package.json               # next, mui, redux-toolkit, lightweight-charts, recharts
+│       ├── .env.local.example         # NEXT_PUBLIC_API_URL / NEXT_PUBLIC_WS_URL
+│       ├── public/
+│       │   └── favicon.svg
+│       ├── app/                       # Next.js App Router pages
+│       │   ├── layout.tsx             # Root layout: Inter font + Providers
+│       │   ├── providers.tsx          # Redux + MUI Theme + Snackbar + WebSocket init
+│       │   └── (dashboard)/           # Shared sidebar + topbar layout group
+│       │       ├── layout.tsx
+│       │       ├── page.tsx           # /  — Dashboard: portfolio strip + top signals
+│       │       ├── signals/
+│       │       │   ├── page.tsx       # /signals — DataGrid with filter bar
+│       │       │   └── [symbol]/
+│       │       │       └── page.tsx   # /signals/RELIANCE — TradingView chart + MTF heatmap
+│       │       ├── portfolio/
+│       │       │   └── page.tsx       # /portfolio — positions, trade history, P&L cards
+│       │       ├── watchlist/
+│       │       │   └── page.tsx       # /watchlist — add/remove symbols
+│       │       ├── alerts/
+│       │       │   └── page.tsx       # /alerts — create/dismiss alerts
+│       │       ├── analytics/
+│       │       │   ├── page.tsx       # /analytics — monthly P&L + win/loss charts
+│       │       │   └── backtest/
+│       │       │       └── page.tsx   # /analytics/backtest — backtest runner + equity curve
+│       │       └── settings/
+│       │           └── page.tsx       # /settings — connection info + config reference
+│       └── src/
+│           ├── components/
+│           │   ├── ui/                # Atomic (zero business logic)
+│           │   │   ├── StatCard.tsx
+│           │   │   ├── CategoryChip.tsx
+│           │   │   ├── GATEBar.tsx
+│           │   │   └── PnlBadge.tsx
+│           │   ├── domain/            # Feature components (connected to Redux)
+│           │   │   ├── SignalTable.tsx
+│           │   │   ├── SignalFilterBar.tsx
+│           │   │   ├── GATEChart.tsx  # TradingView Lightweight Charts v5
+│           │   │   └── BuyModal.tsx
+│           │   └── layout/
+│           │       ├── Sidebar.tsx
+│           │       └── TopBar.tsx
+│           ├── store/
+│           │   ├── index.ts           # Redux configureStore
+│           │   ├── api/               # RTK Query API slices (server cache)
+│           │   │   ├── signalsApi.ts
+│           │   │   ├── portfolioApi.ts
+│           │   │   ├── alertsApi.ts
+│           │   │   └── marketApi.ts
+│           │   └── slices/            # Local UI state
+│           │       ├── wsSlice.ts     # WebSocket connection + scan progress + alerts
+│           │       └── uiSlice.ts     # Sidebar + modals
+│           ├── hooks/
+│           │   └── useWebSocket.ts    # Auto-reconnect + Redis pub/sub → Redux dispatch
+│           ├── lib/
+│           │   ├── theme.ts           # MUI dark theme
+│           │   ├── formatters.ts      # formatPrice, formatPct, formatRR, isMarketHours
+│           │   └── constants.ts       # CATEGORY_COLORS, TIMEFRAME_LABELS, API_URL
+│           └── types/
+│               ├── signal.ts
+│               ├── portfolio.ts
+│               └── alert.ts
+│
+├── gate_output/                       # Scan results — auto-generated, git-ignored
 │   ├── signals.csv
 │   ├── signals.json
 │   ├── scan_report.html
-│   ├── charts/                       # Per-signal interactive charts
-│   ├── daily/                        # Daily scanner output
-│   └── backtest/                     # Backtester output
+│   ├── charts/
+│   ├── daily/
+│   └── backtest/
 │
-└── .gate_cache/                      # Disk cache (auto-generated)
-    ├── *.parquet                      # Cached OHLCV data (1h TTL)
-    └── *.txt                          # Cached universe lists (24h TTL)
+└── .gate_cache/                       # Parquet + universe cache — auto-generated, git-ignored
+    ├── *.parquet                       # OHLCV data (1 h TTL)
+    └── *.txt                           # Universe lists (24 h TTL)
 ```
 
 ---
