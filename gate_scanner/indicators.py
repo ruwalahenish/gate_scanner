@@ -1,0 +1,160 @@
+"""
+indicators.py
+==============
+Pure-pandas/numpy technical indicators. No external TA library required.
+
+All functions take a DataFrame with Open/High/Low/Close/Volume columns and
+return a Series or DataFrame aligned with the input index.
+"""
+
+from __future__ import annotations
+
+from typing import Dict
+
+import numpy as np
+import pandas as pd
+
+
+# -----------------------------------------------------------------------------
+# Moving averages
+# -----------------------------------------------------------------------------
+def ema(series: pd.Series, period: int) -> pd.Series:
+    return series.ewm(span=period, adjust=False, min_periods=period).mean()
+
+
+def sma(series: pd.Series, period: int) -> pd.Series:
+    return series.rolling(period, min_periods=period).mean()
+
+
+def add_emas(df: pd.DataFrame, periods=(20, 50, 100, 200)) -> pd.DataFrame:
+    out = df.copy()
+    for p in periods:
+        out[f"EMA{p}"] = ema(out["Close"], p)
+    return out
+
+
+# -----------------------------------------------------------------------------
+# True Range / ATR
+# -----------------------------------------------------------------------------
+def true_range(df: pd.DataFrame) -> pd.Series:
+    prev_close = df["Close"].shift()
+    tr = pd.concat([
+        df["High"] - df["Low"],
+        (df["High"] - prev_close).abs(),
+        (df["Low"]  - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return tr
+
+
+def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    return true_range(df).rolling(period, min_periods=period).mean()
+
+
+# -----------------------------------------------------------------------------
+# Bollinger Bands
+# -----------------------------------------------------------------------------
+def bollinger(df: pd.DataFrame, period: int = 20, std_dev: float = 2.0):
+    mid = sma(df["Close"], period)
+    std = df["Close"].rolling(period, min_periods=period).std()
+    upper = mid + std_dev * std
+    lower = mid - std_dev * std
+    return upper, mid, lower
+
+
+def bb_width(df: pd.DataFrame, period: int = 20, std_dev: float = 2.0) -> pd.Series:
+    upper, mid, lower = bollinger(df, period, std_dev)
+    return (upper - lower) / mid
+
+
+# -----------------------------------------------------------------------------
+# ADX (trend strength)
+# -----------------------------------------------------------------------------
+def adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    up_move   = df["High"].diff()
+    down_move = -df["Low"].diff()
+
+    plus_dm  = np.where((up_move > down_move) & (up_move > 0),  up_move,   0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+    tr = true_range(df)
+    atr_ = tr.rolling(period, min_periods=period).mean()
+
+    plus_di  = 100 * (pd.Series(plus_dm,  index=df.index).rolling(period).mean() / atr_)
+    minus_di = 100 * (pd.Series(minus_dm, index=df.index).rolling(period).mean() / atr_)
+
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    return dx.rolling(period, min_periods=period).mean()
+
+
+# -----------------------------------------------------------------------------
+# Fibonacci Retracement Levels
+# (MISS-2 fix: strategy requires Fibonacci confirmation of correction ends)
+# -----------------------------------------------------------------------------
+def fibonacci_levels(
+    swing_high: float,
+    swing_low: float,
+) -> Dict[str, float]:
+    """
+    Calculate standard Fibonacci retracement levels between a swing high and low.
+
+    For a bullish correction (price pulled back from a high):
+      levels are measured downward from the swing high.
+
+    Returns a dict of { label: price_level } for 23.6%, 38.2%, 50%, 61.8%, 78.6%.
+    Returns empty dict if inputs are invalid.
+    """
+    if swing_high <= swing_low or swing_high <= 0 or swing_low <= 0:
+        return {}
+    diff = swing_high - swing_low
+    ratios = {
+        "23.6": 0.236,
+        "38.2": 0.382,
+        "50.0": 0.500,
+        "61.8": 0.618,
+        "78.6": 0.786,
+    }
+    return {label: round(swing_high - ratio * diff, 4) for label, ratio in ratios.items()}
+
+
+# -----------------------------------------------------------------------------
+# Swing points (fractal-style)
+# -----------------------------------------------------------------------------
+def swing_highs(df: pd.DataFrame, left: int = 3, right: int = 3) -> pd.Series:
+    """Boolean Series — True where a swing high occurs."""
+    highs = df["High"]
+    cond = pd.Series(True, index=df.index)
+    for i in range(1, left + 1):
+        cond &= highs > highs.shift(i)
+    for i in range(1, right + 1):
+        cond &= highs > highs.shift(-i)
+    return cond.fillna(False)
+
+
+def swing_lows(df: pd.DataFrame, left: int = 3, right: int = 3) -> pd.Series:
+    lows = df["Low"]
+    cond = pd.Series(True, index=df.index)
+    for i in range(1, left + 1):
+        cond &= lows < lows.shift(i)
+    for i in range(1, right + 1):
+        cond &= lows < lows.shift(-i)
+    return cond.fillna(False)
+
+
+def last_swing_levels(df: pd.DataFrame, left: int = 3, right: int = 3) -> dict:
+    """Return last confirmed swing high & swing low prices."""
+    sh = swing_highs(df, left, right)
+    sl = swing_lows(df, left, right)
+    last_high = df.loc[sh, "High"].iloc[-1] if sh.any() else None
+    last_low  = df.loc[sl, "Low"].iloc[-1]  if sl.any() else None
+    return {"last_swing_high": last_high, "last_swing_low": last_low}
+
+
+# -----------------------------------------------------------------------------
+# Percentile helper
+# -----------------------------------------------------------------------------
+def rolling_percentile(series: pd.Series, window: int) -> pd.Series:
+    """Percentile rank (0-100) of each value within trailing `window` bars."""
+    return series.rolling(window, min_periods=window).apply(
+        lambda x: (x.argsort().argsort()[-1] + 1) / len(x) * 100,
+        raw=False,
+    )

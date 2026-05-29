@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p \"d:/Henish-QA/gate-scanner/gate_scanner/universe\")",
+      "Bash(mkdir -p \"d:/Henish-QA/gate-scanner/gate_scanner/backtester\")",
+      "Bash(python -c ' *)",
+      "Bash(pip install *)",
+      "Bash(python -c \"from gate_scanner import charting; from gate_scanner.backtester import report; from gate_scanner.agents import report_agent; print\\('imports OK'\\)\")",
+      "Bash(Get-ChildItem -Path \"d:\\\\Henish-QA\\\\gate-scanner\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(xargs grep -l \"html\\\\|HTML\")",
+      "Bash(touch /mnt/d/gate-scanner/README.md && echo \"created\")",
+      "Read(//mnt/**)",
+      "Bash(ls /mnt/)",
+      "PowerShell(New-Item -ItemType File -Path \"d:\\\\gate-scanner\\\\README.md\" -Force)"
+    ],
+    "additionalDirectories": [
+      "\\mnt\\d\\gate-scanner"
+    ]
+  }
+}

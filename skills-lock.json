@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "grill-me": {
+      "source": "julianoczkowski/designer-skills",
+      "sourceType": "github",
+      "computedHash": "cc7460fe4bba47e11588ef77ff4a1c689fbe081bc3d69d8fcc57bf370abb61ea"
+    }
+  }
+}
