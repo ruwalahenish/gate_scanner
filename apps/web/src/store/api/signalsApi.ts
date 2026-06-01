@@ -1,11 +1,16 @@
-import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
+import { createApi, fetchBaseQuery, retry } from "@reduxjs/toolkit/query/react";
 import type { Signal, SignalListResponse, SignalFilters } from "@/types/signal";
 import type { ScanResult } from "@/types/scan";
 import { API_URL } from "@/lib/constants";
 
+const baseQueryWithRetry = retry(
+  fetchBaseQuery({ baseUrl: `${API_URL}/api` }),
+  { maxRetries: 3 }
+);
+
 export const signalsApi = createApi({
   reducerPath: "signalsApi",
-  baseQuery: fetchBaseQuery({ baseUrl: `${API_URL}/api` }),
+  baseQuery: baseQueryWithRetry,
   tagTypes: ["Signal", "Scan"],
   endpoints: (builder) => ({
     getSignals: builder.query<SignalListResponse, SignalFilters>({
@@ -14,12 +19,14 @@ export const signalsApi = createApi({
         params: filters,
       }),
       providesTags: ["Signal"],
+      keepUnusedDataFor: 300,
     }),
     getSignalHistory: builder.query<Signal[], { symbol: string; limit?: number }>({
       query: ({ symbol, limit = 30 }) => ({
         url: `/signals/${symbol}/history`,
         params: { limit },
       }),
+      keepUnusedDataFor: 120,
     }),
     getSymbolAnalysis: builder.query<Record<string, unknown>, string>({
       query: (symbol) => `/signals/${symbol}/analysis`,
@@ -38,6 +45,7 @@ export const signalsApi = createApi({
     getScans: builder.query<ScanResult[], void>({
       query: () => "/scans",
       providesTags: ["Scan"],
+      keepUnusedDataFor: 60,
     }),
     triggerScan: builder.mutation<{ scan_id: string; status: string }, { mode: string; universe?: string[] }>({
       query: (body) => ({
@@ -49,6 +57,7 @@ export const signalsApi = createApi({
     }),
     getScanStatus: builder.query<{ id: string; status: string; signals_found?: number }, string>({
       query: (scanId) => `/scans/${scanId}`,
+      keepUnusedDataFor: 0,
     }),
   }),
 });

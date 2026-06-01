@@ -1,15 +1,20 @@
 version: "3.9"
 
 services:
-  # ── Redis (free, local) ──────────────────────────────────────────────
+  # ── Redis ────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
       - "6379:6379"
-    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ── FastAPI Backend ──────────────────────────────────────────────────
   api:
@@ -19,32 +24,67 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+      - "9090:9090"   # Prometheus metrics scrape port
     env_file:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
     volumes:
-      - ./.gate_cache:/app/.gate_cache   # reuse existing Parquet cache
+      - gate_cache:/app/.gate_cache
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # ── Celery Worker (runs scan/backtest jobs) ──────────────────────────
-  worker:
+  # ── Celery Worker: scans queue ───────────────────────────────────────
+  worker-scans:
     build:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
+    command: >
+      celery -A app.tasks.celery_app worker
+      --loglevel=info
+      --queues=scans,default
+      --concurrency=2
+      --hostname=worker-scans@%h
     env_file:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
     volumes:
-      - ./.gate_cache:/app/.gate_cache
+      - gate_cache:/app/.gate_cache
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
 
-  # ── Celery Beat (scheduled daily scan at 4:05 PM IST) ───────────────
+  # ── Celery Worker: backtests + admin queues ──────────────────────────
+  worker-admin:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A app.tasks.celery_app worker
+      --loglevel=info
+      --queues=backtests,admin
+      --concurrency=1
+      --hostname=worker-admin@%h
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - gate_cache:/app/.gate_cache
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ── Celery Beat ──────────────────────────────────────────────────────
   beat:
     build:
       context: ./backend
@@ -56,7 +96,28 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+
+  # ── Flower (Celery task monitor) ─────────────────────────────────────
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A app.tasks.celery_app flower
+      --port=5555
+      --basic_auth=${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-gate_flower_2024}
+    ports:
+      - "5555:5555"
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
 
   # ── Next.js Frontend ─────────────────────────────────────────────────
   web:
@@ -70,7 +131,9 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
       - NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   redis_data:
+  gate_cache:    # named volume — shared between api + workers, survives restarts

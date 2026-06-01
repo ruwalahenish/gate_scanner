@@ -1,9 +1,10 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 import asyncpg
 
 from app.dependencies import db_conn
-from app.models.alert import CreateAlertRequest, AlertModel, ALERT_TYPES
+from app.limiter import limiter
+from app.models.alert import CreateAlertRequest, ALERT_TYPES
 from app.queries.alerts import (
     create_alert, get_alerts, dismiss_alert, delete_alert
 )
@@ -13,7 +14,7 @@ router = APIRouter(tags=["alerts"])
 
 @router.get("")
 async def list_alerts(
-    status: str | None = Query(None, regex="^(active|triggered|dismissed|expired)$"),
+    status: str | None = Query(None, pattern="^(active|triggered|dismissed|expired)$"),
     conn: asyncpg.Connection = Depends(db_conn),
 ):
     rows = await get_alerts(conn, status)
@@ -21,7 +22,9 @@ async def list_alerts(
 
 
 @router.post("")
+@limiter.limit("20/minute")
 async def create_new_alert(
+    request: Request,  # required by slowapi
     body: CreateAlertRequest,
     conn: asyncpg.Connection = Depends(db_conn),
 ):

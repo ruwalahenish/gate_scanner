@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Scan concurrency
     scan_executor_workers: int = 4
 
+    # Optional NeonDB read-replica URL (leave empty to fall back to primary)
+    read_replica_url: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

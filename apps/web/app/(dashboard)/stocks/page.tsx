@@ -19,7 +19,6 @@ import {
   useGetStockStatsQuery,
   useTriggerSyncMutation,
 } from "@/store/api/stockMasterApi";
-import { useGetBulkPricesQuery } from "@/store/api/marketApi";
 import type { RootState } from "@/store";
 import type { StockFilters, Stock } from "@/types/stock";
 
@@ -71,26 +70,6 @@ export default function StocksPage() {
   const { data, isLoading } = useListStocksQuery(activeFilters);
   const { data: stats, isLoading: statsLoading } = useGetStockStatsQuery();
   const [triggerSync, { isLoading: syncing }] = useTriggerSyncMutation();
-
-  // Bulk-fetch live prices — API hard-limits at 50 symbols per request.
-  // Split the visible rows into two batches so all 100 rows get prices.
-  const allSymbols = data?.items.map((s) => s.symbol) ?? [];
-  const batch1 = allSymbols.slice(0, 50);
-  const batch2 = allSymbols.slice(50, 100);
-
-  const { data: pricesData1 } = useGetBulkPricesQuery(batch1, {
-    skip: batch1.length === 0,
-    pollingInterval: 60_000,
-  });
-  const { data: pricesData2 } = useGetBulkPricesQuery(batch2, {
-    skip: batch2.length === 0,
-    pollingInterval: 60_000,
-  });
-
-  const prices: Record<string, number> = {
-    ...((pricesData1 as any)?.prices ?? {}),
-    ...((pricesData2 as any)?.prices ?? {}),
-  };
 
   const handleSync = async (phases: string[]) => {
     try {
@@ -162,7 +141,7 @@ export default function StocksPage() {
       width: 90,
       sortable: false,
       renderCell: (p) => {
-        const price = prices[p.row.symbol];
+        const price = p.row.live_price;
         return price ? (
           <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
             {formatPrice(price)}
@@ -381,7 +360,7 @@ export default function StocksPage() {
         paginationMode="server"
         paginationModel={paginationModel}
         onPaginationModelChange={setPaginationModel}
-        pageSizeOptions={[50, 100, 200]}
+        pageSizeOptions={[25, 50, 100]}
         getRowId={(r: Stock) => `${r.symbol}-${r.exchange}`}
         onRowClick={handleRowClick}
         density="compact"

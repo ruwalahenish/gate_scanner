@@ -14,7 +14,15 @@ from app.tasks.celery_app import celery_app
 log = structlog.get_logger()
 
 
-@celery_app.task(bind=True, max_retries=0, soft_time_limit=900, time_limit=960, name="app.tasks.backtest_tasks.run_backtest_task")
+@celery_app.task(
+    bind=True,
+    name="app.tasks.backtest_tasks.run_backtest_task",
+    max_retries=1,
+    default_retry_delay=60,
+    soft_time_limit=900,
+    time_limit=960,
+    queue="backtests",
+)
 def run_backtest_task(
     self,
     backtest_id: str,

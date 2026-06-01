@@ -37,7 +37,15 @@ except ImportError:
 
 CACHE_DIR = Path(os.environ.get("GATE_CACHE_DIR", "./.gate_cache"))
 CACHE_DIR.mkdir(exist_ok=True)
-CACHE_TTL_SECONDS = 3600  # 1h — fine for EOD; lower for intraday
+
+# Tiered TTL: intraday data stales fast; EOD/weekly/monthly data can be cached longer.
+_INTRADAY_TFS = {"1m", "3m", "5m", "15m", "30m", "60m", "4h"}
+_CACHE_TTL_INTRADAY = 3_600       # 1 hour
+_CACHE_TTL_DAILY    = 86_400      # 24 hours — daily, weekly, monthly bars change only EOD
+
+
+def _cache_ttl(interval: str) -> int:
+    return _CACHE_TTL_INTRADAY if interval in _INTRADAY_TFS else _CACHE_TTL_DAILY
 
 # yfinance interval strings — maps our internal TF names to what yfinance accepts
 _YF_INTERVAL_MAP = {
@@ -63,7 +71,7 @@ def _read_cache(symbol: str, interval: str) -> Optional[pd.DataFrame]:
     path = _cache_path(symbol, interval)
     if not path.exists():
         return None
-    if (time.time() - path.stat().st_mtime) > CACHE_TTL_SECONDS:
+    if (time.time() - path.stat().st_mtime) > _cache_ttl(interval):
         return None
     try:
         return pd.read_parquet(path)

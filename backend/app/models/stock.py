@@ -51,6 +51,8 @@ class StockResponse(StockSearchResult):
     latest_stop_loss: Optional[float] = None
     latest_t1: Optional[float] = None
     latest_rr_t1: Optional[float] = None
+    # Live price (fetched inline by list endpoint, not stored in DB)
+    live_price: Optional[float] = None
 
 
 class StockListResponse(BaseModel):

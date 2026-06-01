@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Annotated, Optional
 
 import asyncpg
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.dependencies import db_conn
+from app.dependencies import db_conn, redis_client
+from app.services.price_service import get_bulk_prices
 from app.models.stock import (
     StockListResponse,
     StockResponse,
@@ -91,6 +93,7 @@ async def list_stocks_endpoint(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     conn: asyncpg.Connection = Depends(db_conn),
+    redis: aioredis.Redis = Depends(redis_client),
 ):
     if index_filter and index_filter not in _VALID_INDEX_FILTERS:
         raise HTTPException(status_code=422, detail=f"Invalid index_filter: {index_filter}")
@@ -98,7 +101,16 @@ async def list_stocks_endpoint(
         conn, exchange=exchange, index_filter=index_filter,
         sector=sector, category=category, limit=limit, offset=offset,
     )
-    return StockListResponse(total=total, items=[_serialize(r) for r in rows])
+    items = [_serialize(r) for r in rows]
+
+    # Fetch live prices for all symbols in this page and embed them
+    symbols = [item["symbol"] for item in items]
+    if symbols:
+        prices = await get_bulk_prices(symbols, redis)
+        for item in items:
+            item["live_price"] = prices.get(item["symbol"])
+
+    return StockListResponse(total=total, items=items)
 
 
 # ---------------------------------------------------------------------------

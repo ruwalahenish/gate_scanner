@@ -44,6 +44,8 @@ export interface Stock extends StockSearchResult {
   latest_stop_loss: number | null;
   latest_t1: number | null;
   latest_rr_t1: number | null;
+  // Live price (inline from list endpoint)
+  live_price: number | null;
 }
 
 export interface StockListResponse {

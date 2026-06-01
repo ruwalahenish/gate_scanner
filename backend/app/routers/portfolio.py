@@ -1,9 +1,10 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 import asyncpg
 
 from app.dependencies import db_conn, redis_client
+from app.limiter import limiter
 from app.models.portfolio import BuyRequest, SellRequest, PortfolioSummary
 from app.queries import portfolio as q
 from app.services.portfolio_service import execute_buy, execute_sell
@@ -24,7 +25,6 @@ async def get_summary(
     redis: aioredis.Redis = Depends(redis_client),
 ):
     summary = await q.get_portfolio_summary(conn)
-    # Enrich with live unrealized P&L
     positions = await q.get_open_positions(conn)
     if positions:
         symbols = list({p["symbol"] for p in positions})
@@ -73,7 +73,9 @@ async def get_trades(
 
 
 @router.post("/buy")
+@limiter.limit("30/minute")
 async def buy(
+    request: Request,  # required by slowapi
     body: BuyRequest,
     conn: asyncpg.Connection = Depends(db_conn),
 ):
@@ -92,7 +94,9 @@ async def buy(
 
 
 @router.post("/sell")
+@limiter.limit("30/minute")
 async def sell(
+    request: Request,  # required by slowapi
     body: SellRequest,
     conn: asyncpg.Connection = Depends(db_conn),
 ):
@@ -111,11 +115,12 @@ async def sell(
 
 
 @router.put("/capital")
+@limiter.limit("10/minute")
 async def set_capital(
+    request: Request,  # required by slowapi
     body: CapitalUpdate,
     conn: asyncpg.Connection = Depends(db_conn),
 ):
-    """Reset available capital (both initial and current) to the given amount."""
     await q.reset_capital(conn, body.amount)
     return {"updated": True, "amount": body.amount}
 

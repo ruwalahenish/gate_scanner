@@ -1,13 +1,13 @@
 import asyncio
 from uuid import uuid4, UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 import asyncpg
 
 from app.dependencies import db_conn, redis_client
+from app.limiter import limiter
 from app.models.scan import TriggerScanRequest, TriggerScanResponse, ScanStatus
 from app.queries.scans import create_scan, get_scan, list_scans, has_running_scan
 from app.tasks.scanner_tasks import run_scan_task
-from app.exceptions import ScanInProgressError
 import redis.asyncio as aioredis
 
 router = APIRouter(tags=["scans"])
@@ -27,7 +27,9 @@ async def get_scans(
 
 
 @router.post("/trigger", response_model=TriggerScanResponse)
+@limiter.limit("5/minute")
 async def trigger_scan(
+    request: Request,
     body: TriggerScanRequest,
     conn: asyncpg.Connection = Depends(db_conn),
     redis: aioredis.Redis = Depends(redis_client),
@@ -36,8 +38,6 @@ async def trigger_scan(
     try:
         locked = await redis.set(SCAN_LOCK_KEY, "1", nx=True, ex=SCAN_LOCK_TTL)
         if not locked:
-            # Lock exists — verify it's legitimate. If no scan is actually running
-            # in the DB the lock is stale (e.g. from a crashed worker) and safe to clear.
             actually_running = await has_running_scan(conn)
             if not actually_running:
                 await redis.delete(SCAN_LOCK_KEY)
@@ -52,9 +52,11 @@ async def trigger_scan(
     scan_id = uuid4()
     await create_scan(conn, scan_id, body.mode)
 
-    # Dispatch to Celery worker; fall back to asyncio background task if broker unavailable
     try:
-        run_scan_task.delay(str(scan_id), body.universe, body.mode)
+        run_scan_task.apply_async(
+            args=[str(scan_id), body.universe, body.mode],
+            queue="scans",
+        )
     except Exception:
         from app.tasks.scanner_tasks import _run_scan_async
         asyncio.create_task(_run_scan_async(str(scan_id), body.universe, body.mode))
@@ -64,7 +66,6 @@ async def trigger_scan(
 
 @router.get("/latest/signals")
 async def get_latest_signals_redirect():
-    """Shortcut: redirect to /signals with no scan_id filter."""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/api/signals")
 

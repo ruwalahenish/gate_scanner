@@ -23,8 +23,11 @@ log = structlog.get_logger()
 
 @celery_app.task(
     bind=True,
-    max_retries=0,
     name="app.tasks.stock_tasks.sync_stock_master",
+    max_retries=2,
+    default_retry_delay=120,
+    autoretry_for=(ConnectionError, TimeoutError),
+    queue="admin",
 )
 def sync_stock_master(self, phases: list[str] | None = None):
     """
@@ -42,7 +45,12 @@ def sync_stock_master(self, phases: list[str] | None = None):
         raise
 
 
-@celery_app.task(name="app.tasks.stock_tasks.enrich_fundamentals_batch")
+@celery_app.task(
+    name="app.tasks.stock_tasks.enrich_fundamentals_batch",
+    max_retries=1,
+    default_retry_delay=60,
+    queue="admin",
+)
 def enrich_fundamentals_batch():
     """
     Lightweight scheduled task: enrich the next 50 pending/failed rows.

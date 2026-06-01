@@ -1,7 +1,11 @@
 """
 WebSocket connection registry with Redis Pub/Sub broadcast.
-All FastAPI workers subscribe to the same Redis channels so clients
-connected to any worker receive all events.
+
+Designed to be Centrifugo-compatible: the broadcast() and publish()
+interface is identical whether messages are delivered via in-process
+fan-out (current) or via an external Centrifugo hub (future).
+Switching to Centrifugo only requires replacing listen_redis() with
+a thin Centrifugo publisher and removing the in-process registry.
 """
 import asyncio
 import json
@@ -11,6 +15,7 @@ from fastapi import WebSocket
 import structlog
 
 from app.core.json_utils import CustomEncoder
+from app.metrics import ws_connections
 
 log = structlog.get_logger()
 
@@ -24,6 +29,16 @@ CHANNELS = [
 
 
 class WebSocketManager:
+    """
+    In-process WebSocket hub backed by Redis pub/sub.
+
+    To migrate to Centrifugo:
+      1. Remove _connections, _lock, connect(), disconnect(), broadcast()
+      2. In listen_redis(), publish each message to Centrifugo instead of
+         calling self.broadcast()
+      3. Connect clients to Centrifugo's WebSocket endpoint directly
+    """
+
     def __init__(self):
         self._connections: set[WebSocket] = set()
         self._lock = asyncio.Lock()
@@ -32,11 +47,13 @@ class WebSocketManager:
         await ws.accept()
         async with self._lock:
             self._connections.add(ws)
+        ws_connections.inc()
         log.info("ws_connected", total=len(self._connections))
 
     async def disconnect(self, ws: WebSocket):
         async with self._lock:
             self._connections.discard(ws)
+        ws_connections.dec()
         log.info("ws_disconnected", total=len(self._connections))
 
     async def broadcast(self, message: dict):
@@ -61,11 +78,13 @@ class WebSocketManager:
         if dead:
             async with self._lock:
                 self._connections -= dead
+            ws_connections.dec(len(dead))
 
     async def listen_redis(self, redis: aioredis.Redis):
         """Subscribe to all platform Redis channels and broadcast to WS clients."""
         pubsub = redis.pubsub()
         await pubsub.subscribe(*CHANNELS)
+        log.info("ws_redis_listener_started", channels=CHANNELS)
         try:
             async for message in pubsub.listen():
                 if message.get("type") == "message":
@@ -76,6 +95,7 @@ class WebSocketManager:
                         log.warning("ws_broadcast_error", error=str(e))
         except asyncio.CancelledError:
             await pubsub.unsubscribe(*CHANNELS)
+            log.info("ws_redis_listener_stopped")
 
 
 # Singleton — imported by main.py and routers

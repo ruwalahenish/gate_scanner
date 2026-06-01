@@ -14,35 +14,61 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
+    # Serialisation
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
+
+    # Timezone
     timezone="Asia/Kolkata",
     enable_utc=True,
+
+    # Reliability
     task_track_started=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,
-    # billiard's prefork pool uses POSIX shared semaphores that fail on Windows;
-    # solo pool runs tasks in-process and avoids the IPC entirely
+
+    # Result TTL — clean up completed task results after 1 hour
+    result_expires=3600,
+
+    # Task routing — separate queues per concern
+    task_default_queue="default",
+    task_queues={
+        "scans":    {"exchange": "scans",    "routing_key": "scans"},
+        "backtests": {"exchange": "backtests", "routing_key": "backtests"},
+        "admin":    {"exchange": "admin",    "routing_key": "admin"},
+        "default":  {"exchange": "default",  "routing_key": "default"},
+    },
+    task_routes={
+        "app.tasks.scanner_tasks.run_scan_task":        {"queue": "scans"},
+        "app.tasks.scanner_tasks.run_scheduled_scan":   {"queue": "scans"},
+        "app.tasks.backtest_tasks.run_backtest_task":   {"queue": "backtests"},
+        "app.tasks.stock_tasks.sync_stock_master":      {"queue": "admin"},
+        "app.tasks.stock_tasks.enrich_fundamentals_batch": {"queue": "admin"},
+    },
+
+    # Windows compatibility: solo pool avoids POSIX semaphore failures
     **({"worker_pool": "solo"} if sys.platform == "win32" else {}),
-    # Scheduled scans: post-market Mon–Fri at 4:05 PM IST
+
+    # Scheduled tasks
     beat_schedule={
         "daily-post-market-scan": {
             "task": "app.tasks.scanner_tasks.run_scheduled_scan",
             "schedule": crontab(hour=16, minute=5, day_of_week="1-5"),
             "args": ([], "daily"),
+            "options": {"queue": "scans"},
         },
-        # Refresh NSE equity list + index flags every Sunday at 6 AM IST
         "weekly-stock-master-sync": {
             "task": "app.tasks.stock_tasks.sync_stock_master",
             "schedule": crontab(hour=6, minute=0, day_of_week="0"),
             "args": (["equity", "index_flags"],),
+            "options": {"queue": "admin"},
         },
-        # Incrementally enrich pending/failed fundamentals every 15 minutes
         "fundamentals-enrichment-batch": {
             "task": "app.tasks.stock_tasks.enrich_fundamentals_batch",
             "schedule": crontab(minute="*/15"),
+            "options": {"queue": "admin"},
         },
     },
 )

@@ -1,11 +1,12 @@
 from uuid import uuid4, UUID
 from datetime import date
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 import asyncpg
 
 from app.dependencies import db_conn
+from app.limiter import limiter
 from app.tasks.backtest_tasks import run_backtest_task
 
 router = APIRouter(tags=["backtests"])
@@ -14,7 +15,7 @@ router = APIRouter(tags=["backtests"])
 class RunBacktestRequest(BaseModel):
     universe: list[str] = []
     start_date: date
-    end_date: Optional[date] = None   # None → defaults to today
+    end_date: Optional[date] = None
     initial_capital: float = 1_000_000
 
 
@@ -27,7 +28,9 @@ async def list_backtests(conn: asyncpg.Connection = Depends(db_conn)):
 
 
 @router.post("/run")
+@limiter.limit("2/minute")
 async def run_backtest(
+    request: Request,  # required by slowapi
     body: RunBacktestRequest,
     conn: asyncpg.Connection = Depends(db_conn),
 ):
@@ -41,10 +44,9 @@ async def run_backtest(
            VALUES($1, NOW(), $2, $3, $4, $5, 'pending')""",
         bt_id, body.universe, body.start_date, end, body.initial_capital,
     )
-    run_backtest_task.delay(
-        str(bt_id), body.universe,
-        body.start_date.isoformat(), end.isoformat(),
-        body.initial_capital,
+    run_backtest_task.apply_async(
+        args=[str(bt_id), body.universe, body.start_date.isoformat(), end.isoformat(), body.initial_capital],
+        queue="backtests",
     )
     return {"backtest_id": str(bt_id), "status": "pending"}
 
@@ -86,7 +88,6 @@ async def get_equity_curve(
 async def get_trades_for_symbol(
     conn: asyncpg.Connection, symbol: str, limit: int = 50
 ) -> list[dict]:
-    """Per-symbol backtest trade history across all completed backtests."""
     rows = await conn.fetch("""
         SELECT bt.symbol, bt.entry_date, bt.exit_date, bt.entry_price, bt.exit_price,
                bt.pnl_abs, bt.pnl_pct, bt.exit_reason, bt.holding_days, bt.rr_achieved,

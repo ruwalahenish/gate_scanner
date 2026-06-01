@@ -48,7 +48,9 @@
       "Bash(mkdir \"d:\\\\gate_scanner\\\\apps\\\\web\\\\app\\\\\\(dashboard\\)\\\\stocks\\\\[symbol]\")",
       "Bash(Remove-Item -Recurse -Force \"d:\\\\gate_scanner\\\\apps\\\\web\\\\app\\\\\\(dashboard\\)\\\\signals\")",
       "Bash(Remove-Item -Force \"d:\\\\gate_scanner\\\\apps\\\\web\\\\src\\\\components\\\\domain\\\\SignalFilterBar.tsx\")",
-      "Bash(python -c \"import sys,json; p=json.load\\(sys.stdin\\); print\\(p.get\\('dependencies',{}\\).get\\('lightweight-charts','not found'\\)\\)\")"
+      "Bash(python -c \"import sys,json; p=json.load\\(sys.stdin\\); print\\(p.get\\('dependencies',{}\\).get\\('lightweight-charts','not found'\\)\\)\")",
+      "PowerShell(python -c \"import slowapi; print\\(slowapi.__file__\\)\" 2>&1)",
+      "PowerShell(python -c \"import sys; print\\(sys.executable\\)\")"
     ],
     "additionalDirectories": [
       "\\mnt\\d\\gate-scanner",

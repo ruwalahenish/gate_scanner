@@ -14,7 +14,14 @@ from app.tasks.celery_app import celery_app
 log = structlog.get_logger()
 
 
-@celery_app.task(bind=True, max_retries=0, name="app.tasks.scanner_tasks.run_scan_task")
+@celery_app.task(
+    bind=True,
+    name="app.tasks.scanner_tasks.run_scan_task",
+    max_retries=2,
+    default_retry_delay=30,
+    autoretry_for=(ConnectionError, TimeoutError),
+    queue="scans",
+)
 def run_scan_task(self, scan_id: str, universe: list[str], mode: str = "daily"):
     """
     Execute the 5-stage GATE pipeline and persist results to NeonDB.
@@ -129,6 +136,13 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
             "payload": {"scan_id": scan_id, "signals_count": total_inserted},
             "timestamp": _now(),
         })
+        # Bust the server-side signals list cache so the next request hits the DB
+        try:
+            keys = await redis.keys("signals:list:*")
+            if keys:
+                await redis.delete(*keys)
+        except Exception:
+            pass
         log.info("scan_completed", scan_id=scan_id, signals=total_inserted, duration=round(duration, 1))
 
     except Exception as exc:
