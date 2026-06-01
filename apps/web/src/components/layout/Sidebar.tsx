@@ -1,11 +1,11 @@
 "use client";
 import {
   Drawer, List, ListItemButton, ListItemIcon, ListItemText,
-  Typography, Box, Chip, Divider,
+  Typography, Box, Divider,
 } from "@mui/material";
 import {
-  Dashboard, ShowChart, AccountBalance, Star, Notifications,
-  BarChart, Settings, TableChart,
+  Dashboard, BarChart, TableChart,
+  Star, TrendingUp, Scanner,
 } from "@mui/icons-material";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -15,19 +15,16 @@ import type { RootState } from "@/store";
 const DRAWER_WIDTH = 220;
 
 const NAV = [
-  { label: "Dashboard",  href: "/",            icon: <Dashboard /> },
-  { label: "Portfolio",  href: "/portfolio",    icon: <AccountBalance /> },
-  { label: "Watchlist",  href: "/watchlist",    icon: <Star /> },
-  { label: "Alerts",     href: "/alerts",       icon: <Notifications /> },
-  { label: "Analytics",  href: "/analytics",    icon: <BarChart /> },
-  { label: "Backtest",   href: "/analytics/backtest", icon: <ShowChart /> },
-  { label: "Stocks",     href: "/stocks",        icon: <TableChart /> },
-  { label: "Settings",   href: "/settings",      icon: <Settings /> },
+  { label: "Dashboard",     href: "/",              icon: <Dashboard /> },
+  { label: "Master Stocks", href: "/stocks",         icon: <TableChart /> },
+  { label: "GATE Scanner",  href: "/scanner",        icon: <Scanner /> },
+  { label: "Watchlist",     href: "/watchlist",      icon: <Star /> },
+  { label: "Paper Trading", href: "/paper-trading",  icon: <TrendingUp /> },
+  { label: "Backtest",      href: "/backtest",       icon: <BarChart /> },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
-  const unreadAlerts = useSelector((s: RootState) => s.ws.unreadAlerts);
   const connected = useSelector((s: RootState) => s.ws.connected);
 
   return (
@@ -66,7 +63,10 @@ export function Sidebar() {
 
       <List dense sx={{ px: 1 }}>
         {NAV.map((item) => {
-          const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+          const active =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <ListItemButton
               key={item.href}
@@ -90,14 +90,6 @@ export function Sidebar() {
                 primary={item.label}
                 primaryTypographyProps={{ variant: "body2" }}
               />
-              {item.label === "Alerts" && unreadAlerts > 0 && (
-                <Chip
-                  label={unreadAlerts}
-                  size="small"
-                  color="warning"
-                  sx={{ height: 18, fontSize: 10 }}
-                />
-              )}
             </ListItemButton>
           );
         })}

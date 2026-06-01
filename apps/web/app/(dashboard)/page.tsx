@@ -1,212 +1,572 @@
 "use client";
 import {
-  Box, Grid, Typography, Card, CardContent,
-  Table, TableBody, TableCell, TableHead, TableRow, Chip, Alert,
+  Box, Grid, Card, CardContent, Typography, Chip,
+  Divider, LinearProgress, Stack, CircularProgress,
 } from "@mui/material";
 import {
-  TrendingUp, TrendingDown, AccountBalance, FlashOn,
+  TrendingUp, Visibility, SwapHoriz, EmojiEvents,
+  CheckCircleOutline, ErrorOutline, AccessTime,
 } from "@mui/icons-material";
-import Link from "next/link";
-import { useMemo } from "react";
 import { useSelector } from "react-redux";
-import { useGetSignalsQuery, useGetScansQuery } from "@/store/api/signalsApi";
-import { useGetPortfolioSummaryQuery } from "@/store/api/portfolioApi";
-import { useGetAlertsQuery } from "@/store/api/alertsApi";
 import { StatCard } from "@/components/ui/StatCard";
-import { CategoryChip } from "@/components/ui/CategoryChip";
-import { GATEBar } from "@/components/ui/GATEBar";
-import { formatPrice, formatIST, isMarketHours } from "@/lib/formatters";
-import { CATEGORY_ORDER } from "@/lib/constants";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { PageError } from "@/components/ui/PageError";
+import { useGetDashboardQuery } from "@/store/api/scannerApi";
+import { formatIST, formatPct, formatPrice, formatRR } from "@/lib/formatters";
 import type { RootState } from "@/store";
-import type { SignalCategory } from "@/types/signal";
-import type { StreamingSignal } from "@/types/scan";
+import type { DashboardData } from "@/store/api/scannerApi";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Display-status → colour mapping
+// ─────────────────────────────────────────────────────────────────────────────
+const STATUS_COLOR: Record<string, string> = {
+  "BUY":       "#22c55e",
+  "WATCH":     "#f59e0b",
+  "NO_ACTION": "#64748b",
+};
+
+const DISPLAY_CATEGORY_COLOR: Record<string, string> = {
+  "Long-Term Buy":  "#22c55e",
+  "Swing Buy":      "#6366f1",
+  "Positional Buy": "#38bdf8",
+  "Watch":          "#f59e0b",
+  "No Action":      "#64748b",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Small inline helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PnlText({ value }: { value: number | null | undefined }) {
+  if (value == null) return <Typography component="span" variant="body2">—</Typography>;
+  const pos = value >= 0;
+  return (
+    <Typography
+      component="span"
+      variant="body2"
+      fontWeight={600}
+      color={pos ? "success.main" : "error.main"}
+    >
+      {pos ? "+" : ""}{formatPrice(value, 0)}
+    </Typography>
+  );
+}
+
+function HealthDot({ ok }: { ok: boolean }) {
+  return ok
+    ? <CheckCircleOutline sx={{ fontSize: 16, color: "success.main" }} />
+    : <ErrorOutline sx={{ fontSize: 16, color: "error.main" }} />;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Section: Recent BUY Opportunities
+// ─────────────────────────────────────────────────────────────────────────────
+
+function OpportunitiesSection({ items }: { items: DashboardData["recent_opportunities"] }) {
+  if (!items || items.length === 0) {
+    return (
+      <EmptyState
+        title="No BUY opportunities yet"
+        description="Run a GATE scan to discover opportunities"
+      />
+    );
+  }
+
+  return (
+    <Stack spacing={0}>
+      {items.map((sig) => {
+        const cat = sig.display_category ?? "—";
+        const color = DISPLAY_CATEGORY_COLOR[cat] ?? "#64748b";
+        return (
+          <Box
+            key={sig.id}
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "90px 1fr 48px 64px 56px",
+              alignItems: "center",
+              gap: 1,
+              py: 0.9,
+              px: 0.5,
+              borderBottom: "1px solid rgba(255,255,255,0.04)",
+              "&:last-child": { borderBottom: "none" },
+              "&:hover": { bgcolor: "rgba(255,255,255,0.025)", borderRadius: 1 },
+            }}
+          >
+            {/* Symbol */}
+            <Typography variant="body2" fontWeight={700} noWrap>{sig.symbol}</Typography>
+
+            {/* Category chip */}
+            <Chip
+              label={cat}
+              size="small"
+              sx={{
+                bgcolor: `${color}20`,
+                color,
+                border: `1px solid ${color}40`,
+                fontSize: "0.65rem",
+                height: 18,
+                fontWeight: 600,
+              }}
+            />
+
+            {/* GATE score */}
+            <Typography variant="caption" color="text.secondary" textAlign="right">
+              {sig.gate_strength != null ? sig.gate_strength.toFixed(0) : "—"}
+            </Typography>
+
+            {/* Entry */}
+            <Typography variant="caption" noWrap textAlign="right">
+              {sig.entry != null ? `₹${sig.entry.toLocaleString("en-IN")}` : "—"}
+            </Typography>
+
+            {/* RR */}
+            <Typography
+              variant="caption"
+              textAlign="right"
+              color={sig.rr_t1 != null && sig.rr_t1 >= 2 ? "success.main" : "text.secondary"}
+            >
+              {formatRR(sig.rr_t1)}
+            </Typography>
+          </Box>
+        );
+      })}
+      {/* Column headers */}
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "90px 1fr 48px 64px 56px",
+          gap: 1,
+          px: 0.5,
+          pt: 0.5,
+        }}
+      >
+        {["Symbol", "Status", "GATE", "Entry", "RR"].map((h) => (
+          <Typography key={h} variant="caption" color="text.disabled" textAlign={h === "Symbol" || h === "Status" ? "left" : "right"}>
+            {h}
+          </Typography>
+        ))}
+      </Box>
+    </Stack>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Section: Recent Paper Trades
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EXIT_LABEL: Record<string, string> = {
+  manual:   "Manual",
+  sl_hit:   "Stop Loss",
+  t1_hit:   "Target T1",
+  t2_hit:   "Target T2",
+  t3_hit:   "Target T3",
+  trail:    "Trailing",
+};
+
+function RecentTradesSection({ items }: { items: DashboardData["recent_trades"] }) {
+  type TradeRow = {
+    id: string; symbol: string; pnl_abs?: number | null;
+    pnl_pct?: number | null; exit_reason?: string | null; executed_at?: string;
+  };
+
+  const trades = items as TradeRow[];
+
+  if (!trades || trades.length === 0) {
+    return (
+      <EmptyState
+        title="No paper trades yet"
+        description="Trades are created automatically from BUY signals"
+      />
+    );
+  }
+
+  return (
+    <Stack spacing={0}>
+      {trades.map((t) => {
+        const isWin = (t.pnl_abs ?? 0) >= 0;
+        return (
+          <Box
+            key={t.id}
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "80px 1fr 80px 70px",
+              alignItems: "center",
+              gap: 1,
+              py: 0.9,
+              px: 0.5,
+              borderBottom: "1px solid rgba(255,255,255,0.04)",
+              "&:last-child": { borderBottom: "none" },
+              "&:hover": { bgcolor: "rgba(255,255,255,0.025)", borderRadius: 1 },
+            }}
+          >
+            <Typography variant="body2" fontWeight={700} noWrap>{t.symbol}</Typography>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {EXIT_LABEL[t.exit_reason ?? ""] ?? t.exit_reason ?? "—"}
+            </Typography>
+            <Typography
+              variant="caption"
+              fontWeight={600}
+              textAlign="right"
+              color={isWin ? "success.main" : "error.main"}
+              noWrap
+            >
+              {t.pnl_abs != null ? `${isWin ? "+" : ""}${formatPrice(t.pnl_abs, 0)}` : "—"}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" textAlign="right" noWrap>
+              {t.executed_at ? formatIST(t.executed_at) : "—"}
+            </Typography>
+          </Box>
+        );
+      })}
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "80px 1fr 80px 70px",
+          gap: 1,
+          px: 0.5,
+          pt: 0.5,
+        }}
+      >
+        {["Symbol", "Exit Reason", "P&L", "Date"].map((h) => (
+          <Typography key={h} variant="caption" color="text.disabled" textAlign={h === "Symbol" || h === "Exit Reason" ? "left" : "right"}>
+            {h}
+          </Typography>
+        ))}
+      </Box>
+    </Stack>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Section: Watchlist mini-panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+function WatchlistPanel({ wl }: { wl: DashboardData["watchlist"] }) {
+  const rows: { label: string; value: number; color?: string }[] = [
+    { label: "Watching",       value: wl.active,        color: "#f59e0b" },
+    { label: "Buy Triggered",  value: wl.buy_triggered, color: "#22c55e" },
+    { label: "Target Hit",     value: wl.target_hit,    color: "#38bdf8" },
+    { label: "Stop Loss Hit",  value: wl.sl_hit,        color: "#ef4444" },
+    { label: "Closed",         value: wl.closed,        color: "#64748b" },
+  ];
+
+  return (
+    <Stack spacing={0.6}>
+      <Typography variant="caption" color="text.secondary" fontWeight={600} mb={0.3}>
+        WATCHLIST — {wl.total} total
+      </Typography>
+      {rows.map(({ label, value, color }) => (
+        <Box key={label} display="flex" justifyContent="space-between" alignItems="center">
+          <Typography variant="caption" color="text.secondary">{label}</Typography>
+          <Typography variant="caption" fontWeight={600} sx={{ color: color ?? "text.primary" }}>
+            {value}
+          </Typography>
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Section: Paper Trading P&L mini-panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PaperTradingPanel({ pt }: { pt: DashboardData["paper_trading"] }) {
+  return (
+    <Stack spacing={0.6}>
+      <Typography variant="caption" color="text.secondary" fontWeight={600} mb={0.3}>
+        PAPER TRADING
+      </Typography>
+      {[
+        { label: "Total P&L",      value: <PnlText value={pt.total_pnl} /> },
+        { label: "Realized",       value: <PnlText value={pt.realized_pnl} /> },
+        { label: "Unrealized",     value: <PnlText value={pt.unrealized_pnl} /> },
+        { label: "Win Rate",       value: <Typography variant="caption" fontWeight={600}>{pt.win_rate.toFixed(1)}%</Typography> },
+        { label: "Open Positions", value: <Typography variant="caption" fontWeight={600}>{pt.open_positions}</Typography> },
+      ].map(({ label, value }) => (
+        <Box key={label} display="flex" justifyContent="space-between" alignItems="center">
+          <Typography variant="caption" color="text.secondary">{label}</Typography>
+          {value}
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Section: System Health mini-panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SystemHealthPanel({ health, scanner }: {
+  health: DashboardData["system_health"];
+  scanner: DashboardData["scanner"];
+}) {
+  return (
+    <Stack spacing={0.6}>
+      <Typography variant="caption" color="text.secondary" fontWeight={600} mb={0.3}>
+        SYSTEM HEALTH
+      </Typography>
+      {[
+        { label: "Database",    node: <HealthDot ok={health.db_ok} /> },
+        { label: "Redis Cache", node: <HealthDot ok={health.redis_ok} /> },
+      ].map(({ label, node }) => (
+        <Box key={label} display="flex" justifyContent="space-between" alignItems="center">
+          <Typography variant="caption" color="text.secondary">{label}</Typography>
+          {node}
+        </Box>
+      ))}
+      <Divider sx={{ borderColor: "rgba(255,255,255,0.06)", my: 0.3 }} />
+      <Box display="flex" justifyContent="space-between">
+        <Typography variant="caption" color="text.secondary">Last Scan</Typography>
+        <Typography variant="caption" fontWeight={600}>
+          {scanner.last_scan_at ? formatIST(scanner.last_scan_at) : "Never"}
+        </Typography>
+      </Box>
+      {health.last_scan_duration_sec != null && (
+        <Box display="flex" justifyContent="space-between">
+          <Typography variant="caption" color="text.secondary">Duration</Typography>
+          <Typography variant="caption" fontWeight={600}>
+            {health.last_scan_duration_sec.toFixed(0)}s
+          </Typography>
+        </Box>
+      )}
+      <Box display="flex" justifyContent="space-between">
+        <Typography variant="caption" color="text.secondary">Backtests</Typography>
+        <Typography variant="caption" fontWeight={600}>
+          —
+        </Typography>
+      </Box>
+    </Stack>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main dashboard page
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { data: signals, isLoading: signalsLoading } = useGetSignalsQuery({ limit: 10, min_rank: 50 });
-  const { data: summary } = useGetPortfolioSummaryQuery(undefined, {
-    pollingInterval: isMarketHours() ? 60_000 : 0,
+  const { data, isLoading, isError, refetch } = useGetDashboardQuery(undefined, {
+    pollingInterval: 60_000,
   });
-  const { data: scans } = useGetScansQuery();
-  const { data: alerts } = useGetAlertsQuery({ status: "triggered" });
 
-  const scanProgress     = useSelector((s: RootState) => s.ws.scanProgress);
-  const streamingSignals = useSelector((s: RootState) => s.ws.streamingSignals);
-  const isScanning       = scanProgress !== null;
+  const scanProgress  = useSelector((s: RootState) => s.ws.scanProgress);
+  const lastProcess   = useSelector((s: RootState) => s.ws.lastPostProcess);
 
-  const latestScan = scans?.[0];
+  const hasRealProgress = scanProgress !== null && scanProgress.total > 0;
+  const progressPct = hasRealProgress
+    ? Math.min(100, Math.round((scanProgress.done / scanProgress.total) * 100))
+    : 0;
 
-  // While scanning: show streaming batch results; otherwise show authoritative DB results
-  const topSignals = useMemo(() => {
-    if (isScanning && streamingSignals.length > 0) {
-      return [...streamingSignals]
-        .sort((a, b) => (b.rank_score ?? 0) - (a.rank_score ?? 0))
-        .slice(0, 8);
-    }
-    return signals?.items?.slice(0, 8) ?? [];
-  }, [isScanning, streamingSignals, signals]);
+  // ── Scan in-progress banner ────────────────────────────────────────────
+  const ScanBanner = scanProgress ? (
+    <Card sx={{ mb: 2, bgcolor: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)" }}>
+      <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.8}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <CircularProgress size={14} thickness={5} />
+            <Typography variant="body2" fontWeight={600}>Scanning in progress…</Typography>
+          </Box>
+          {hasRealProgress && (
+            <Typography variant="caption" color="text.secondary">
+              {scanProgress.done} / {scanProgress.total} symbols ({progressPct}%)
+            </Typography>
+          )}
+        </Box>
+        <LinearProgress
+          variant={hasRealProgress ? "determinate" : "indeterminate"}
+          value={hasRealProgress ? progressPct : undefined}
+          sx={{ height: 4, borderRadius: 2 }}
+        />
+      </CardContent>
+    </Card>
+  ) : null;
 
-  const allSignals = isScanning ? streamingSignals : (signals?.items ?? []);
+  // ── Post-process notification ──────────────────────────────────────────
+  const PostProcessBanner = lastProcess && !scanProgress && (
+    lastProcess.watch_added > 0 || lastProcess.trades_created > 0
+  ) ? (
+    <Card sx={{ mb: 2, bgcolor: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.15)" }}>
+      <CardContent sx={{ py: 1, "&:last-child": { pb: 1 } }}>
+        <Typography variant="caption" color="success.light">
+          Last scan: {lastProcess.watch_added} added to watchlist · {lastProcess.trades_created} paper trade{lastProcess.trades_created !== 1 ? "s" : ""} created automatically
+        </Typography>
+      </CardContent>
+    </Card>
+  ) : null;
 
-  const categoryCounts = useMemo(
-    () =>
-      CATEGORY_ORDER.reduce((acc, cat) => {
-        acc[cat] = allSignals.filter((s) => s.category === cat).length;
-        return acc;
-      }, {} as Record<string, number>),
-    [allSignals]
-  );
+  // ── Loading skeleton ───────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <Box>
+        <Typography variant="h6" fontWeight={700} mb={2}>Dashboard</Typography>
+        <Grid container spacing={2} mb={2}>
+          {[1, 2, 3, 4].map((i) => (
+            <Grid item xs={6} sm={3} key={i}>
+              <SkeletonCard rows={2} />
+            </Grid>
+          ))}
+        </Grid>
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={6}><SkeletonCard rows={5} /></Grid>
+          <Grid item xs={12} md={6}><SkeletonCard rows={5} /></Grid>
+        </Grid>
+      </Box>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Box>
+        <Typography variant="h6" fontWeight={700} mb={2}>Dashboard</Typography>
+        <Card>
+          <PageError
+            message="Could not load dashboard data"
+            detail="Check that the backend API is running and the database is reachable"
+            onRetry={refetch}
+          />
+        </Card>
+      </Box>
+    );
+  }
+
+  if (!data) return null;
+
+  const { scanner, watchlist, paper_trading, backtesting, recent_opportunities, recent_trades, system_health } = data;
+
+  // ── No scan yet — onboarding state ────────────────────────────────────
+  if (!scanner.last_scan_at) {
+    return (
+      <Box>
+        <Typography variant="h6" fontWeight={700} mb={2}>Dashboard</Typography>
+        {ScanBanner}
+        <Card>
+          <EmptyState
+            icon={<TrendingUp />}
+            title="Run your first GATE scan"
+            description="The dashboard will populate with signals, watchlist entries, and paper trades after your first scan completes."
+          />
+        </Card>
+      </Box>
+    );
+  }
 
   return (
     <Box>
-      <Typography variant="h6" fontWeight={700} mb={2}>Market Overview</Typography>
+      {/* Page title + scan meta */}
+      <Box display="flex" alignItems="baseline" gap={1.5} mb={2} flexWrap="wrap">
+        <Typography variant="h6" fontWeight={700}>Dashboard</Typography>
+        <Box display="flex" alignItems="center" gap={0.5}>
+          <AccessTime sx={{ fontSize: 13, color: "text.disabled" }} />
+          <Typography variant="caption" color="text.secondary">
+            Last scan: {formatIST(scanner.last_scan_at)}
+          </Typography>
+        </Box>
+        {backtesting.last_run_at && (
+          <Typography variant="caption" color="text.disabled">
+            · Best backtest CAGR: {backtesting.best_cagr.toFixed(1)}%
+          </Typography>
+        )}
+      </Box>
 
-      {/* P&L + portfolio strip */}
-      <Grid container spacing={2} mb={3}>
-        <Grid item xs={6} sm={3} md={2}>
+      {ScanBanner}
+      {PostProcessBanner}
+
+      {/* ── Stat bar ─────────────────────────────────────────────────────── */}
+      <Grid container spacing={2} mb={2}>
+        <Grid item xs={6} sm={3}>
           <StatCard
-            label="Available Capital"
-            value={formatPrice(summary?.current_capital)}
-            icon={<AccountBalance />}
+            label="BUY Signals"
+            value={scanner.buy_count}
+            subtitle={`${scanner.watch_count} watching`}
+            icon={<TrendingUp />}
+            color="#22c55e"
           />
         </Grid>
-        <Grid item xs={6} sm={3} md={2}>
+        <Grid item xs={6} sm={3}>
           <StatCard
-            label="Unrealized P&L"
-            value={formatPrice(summary?.unrealized_pnl)}
-            color={summary?.unrealized_pnl != null && summary.unrealized_pnl >= 0 ? "#22c55e" : "#ef4444"}
-            icon={summary?.unrealized_pnl != null && summary.unrealized_pnl >= 0
-              ? <TrendingUp /> : <TrendingDown />}
+            label="Watchlist"
+            value={watchlist.total}
+            subtitle={`${watchlist.active} active`}
+            icon={<Visibility />}
+            color="#f59e0b"
           />
         </Grid>
-        <Grid item xs={6} sm={3} md={2}>
-          <StatCard label="Win Rate" value={`${summary?.win_rate?.toFixed(1) ?? "—"}%`} color="#6366f1" />
+        <Grid item xs={6} sm={3}>
+          <StatCard
+            label="Open Trades"
+            value={paper_trading.open_positions}
+            subtitle={`${paper_trading.total_trades} total`}
+            icon={<SwapHoriz />}
+            color="#6366f1"
+          />
         </Grid>
-        <Grid item xs={6} sm={3} md={2}>
-          <StatCard label="Open Positions" value={summary?.open_positions ?? 0} />
+        <Grid item xs={6} sm={3}>
+          <StatCard
+            label="Win Rate"
+            value={`${paper_trading.win_rate.toFixed(1)}%`}
+            subtitle={`${paper_trading.winning_trades}W / ${paper_trading.total_trades - paper_trading.winning_trades}L`}
+            icon={<EmojiEvents />}
+            color={paper_trading.win_rate >= 50 ? "#22c55e" : "#ef4444"}
+          />
         </Grid>
-        {CATEGORY_ORDER.filter((c) => c !== "IGNORE").slice(0, 4).map((cat) => (
-          <Grid item xs={6} sm={3} md={2} key={cat}>
-            <StatCard
-              label={cat}
-              value={categoryCounts[cat] ?? 0}
-              subtitle={isScanning ? "live" : "signals"}
-              icon={<FlashOn />}
-              color={cat === "INVESTMENT" ? "#22c55e" : cat === "SWING" ? "#6366f1" : undefined}
-            />
-          </Grid>
-        ))}
       </Grid>
 
-      {/* Scan info */}
-      {isScanning && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Scan in progress — {streamingSignals.length} signals found so far
-          {scanProgress && scanProgress.total > 0 &&
-            ` (${scanProgress.done}/${scanProgress.total} symbols processed)`}
-        </Alert>
-      )}
-      {!isScanning && latestScan && (
-        <Alert
-          severity={latestScan.status === "done" ? "info" : "warning"}
-          sx={{ mb: 2 }}
-        >
-          Last scan: {formatIST(latestScan.triggered_at ?? null)} — {" "}
-          {latestScan.signals_found ?? 0} signals found · Status: {latestScan.status}
-        </Alert>
-      )}
-
-      <Grid container spacing={2}>
-        {/* Top signals */}
-        <Grid item xs={12} lg={7}>
-          <Card>
-            <CardContent>
-              <Typography variant="subtitle2" gutterBottom>
-                {isScanning
-                  ? `Live Results (${streamingSignals.length} so far)`
-                  : "Top Signals (by Rank)"}
-              </Typography>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    {["Symbol", "Category", "Entry", "T1", "GATE", "RR"].map((h) => (
-                      <TableCell key={h} sx={{ color: "text.secondary", fontSize: "0.75rem" }}>{h}</TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {topSignals.map((s, idx) => {
-                    const id = (s as { id?: string }).id;
-                    const key = id ?? `${s.symbol}-${idx}`;
-                    return (
-                      <TableRow key={key} hover>
-                        <TableCell>
-                          <Link
-                            href={`/stocks/${s.symbol}`}
-                            style={{ color: "#818cf8", fontWeight: 700, textDecoration: "none" }}
-                          >
-                            {s.symbol}
-                          </Link>
-                        </TableCell>
-                        <TableCell><CategoryChip category={s.category as SignalCategory} /></TableCell>
-                        <TableCell>{formatPrice(s.entry)}</TableCell>
-                        <TableCell sx={{ color: "success.light" }}>{formatPrice(s.t1)}</TableCell>
-                        <TableCell sx={{ minWidth: 100 }}><GATEBar score={s.gate_strength} /></TableCell>
-                        <TableCell>{s.rr_t1?.toFixed(1) ?? "—"}x</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                  {!signalsLoading && !isScanning && topSignals.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
-                        <Typography color="text.secondary" variant="body2">
-                          No signals yet — click Run Scan to generate signals
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  {isScanning && topSignals.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
-                        <Typography color="text.secondary" variant="body2">
-                          Waiting for first batch…
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+      {/* ── Main content: opportunities + trades ─────────────────────────── */}
+      <Grid container spacing={2} mb={2}>
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: "100%" }}>
+            <CardContent sx={{ pb: "12px !important" }}>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                <Typography variant="subtitle2" fontWeight={700}>Recent BUY Opportunities</Typography>
+                <Chip
+                  label={`${recent_opportunities.length} shown`}
+                  size="small"
+                  sx={{ fontSize: "0.65rem", height: 18 }}
+                />
+              </Box>
+              <OpportunitiesSection items={recent_opportunities} />
             </CardContent>
           </Card>
         </Grid>
 
-        {/* Recent alerts */}
-        <Grid item xs={12} lg={5}>
-          <Card>
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: "100%" }}>
+            <CardContent sx={{ pb: "12px !important" }}>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                <Typography variant="subtitle2" fontWeight={700}>Recent Paper Trades</Typography>
+                <Chip
+                  label={`${recent_trades.length} shown`}
+                  size="small"
+                  sx={{ fontSize: "0.65rem", height: 18 }}
+                />
+              </Box>
+              <RecentTradesSection items={recent_trades} />
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* ── Bottom row: watchlist + P&L + health ─────────────────────────── */}
+      <Grid container spacing={2}>
+        <Grid item xs={12} sm={4}>
+          <Card sx={{ height: "100%" }}>
             <CardContent>
-              <Typography variant="subtitle2" gutterBottom>Recent Alerts</Typography>
-              {(alerts as { id: string; symbol: string; message?: string; triggered_at?: string }[] | undefined)
-                ?.slice(0, 8)
-                .map((a) => (
-                  <Box
-                    key={a.id}
-                    display="flex"
-                    justifyContent="space-between"
-                    alignItems="center"
-                    py={0.6}
-                    borderBottom="1px solid rgba(255,255,255,0.04)"
-                  >
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>{a.symbol}</Typography>
-                      <Typography variant="caption" color="text.secondary">{a.message}</Typography>
-                    </Box>
-                    <Typography variant="caption" color="text.secondary">
-                      {formatIST(a.triggered_at ?? null)}
-                    </Typography>
-                  </Box>
-                ))}
-              {(!alerts || (alerts as unknown[]).length === 0) && (
-                <Typography color="text.secondary" variant="body2">No alerts triggered</Typography>
-              )}
+              <WatchlistPanel wl={watchlist} />
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={4}>
+          <Card sx={{ height: "100%" }}>
+            <CardContent>
+              <PaperTradingPanel pt={paper_trading} />
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={4}>
+          <Card sx={{ height: "100%" }}>
+            <CardContent>
+              <SystemHealthPanel health={system_health} scanner={scanner} />
             </CardContent>
           </Card>
         </Grid>

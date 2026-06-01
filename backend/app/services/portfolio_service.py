@@ -20,6 +20,8 @@ async def execute_buy(
     t2: float | None = None,
     t3: float | None = None,
     notes: str | None = None,
+    auto_created: bool = False,
+    creation_source: str = "manual",
 ) -> dict:
     """
     Simulated buy: deducts cost from current_capital and creates a position.
@@ -40,6 +42,7 @@ async def execute_buy(
             conn, symbol, "BUY", quantity, price,
             stop_loss=stop_loss, t1=t1, t2=t2, t3=t3,
             signal_id=signal_id, notes=notes,
+            auto_created=auto_created, creation_source=creation_source,
         )
         trade_id = await q.record_trade(
             conn, position_id, symbol, "BUY", quantity, price, notes=notes

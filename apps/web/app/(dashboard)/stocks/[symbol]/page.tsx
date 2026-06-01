@@ -186,7 +186,7 @@ export default function StockDetailPage() {
               <Chip label={stock.sector} size="small" variant="outlined" sx={{ fontSize: 11 }} />
             )}
             {stock?.latest_category && (
-              <CategoryChip category={stock.latest_category} />
+              <CategoryChip category={stock.latest_category as import("@/types/signal").SignalCategory} />
             )}
           </Box>
           <Box display="flex" gap={2} mt={0.3}>

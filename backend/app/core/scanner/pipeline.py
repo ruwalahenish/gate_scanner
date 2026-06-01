@@ -243,13 +243,13 @@ def run_daily_scan(
         )
 
     logger.info(
-        "Daily scan: %d symbols, timeframe=1d, output=%s",
-        len(universe), out_dir,
+        "Daily scan: %d symbols, timeframes=%s, output=%s",
+        len(universe), config.SCAN_TIMEFRAMES, out_dir,
     )
 
     return run_scan(
         universe=universe,
-        timeframes=["1d"],
+        timeframes=config.SCAN_TIMEFRAMES,   # ["4h", "1d", "1wk"] — 4h for SL, 1d entry, 1wk HTF
         workers=workers,
         out_dir=out_dir,
         on_batch=on_batch,

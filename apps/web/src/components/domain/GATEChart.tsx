@@ -114,7 +114,7 @@ export function GATEChart({ bars, signal, height = 480, loading = false }: GATEC
         if (!emaData.length) return;
         const s = chart.addSeries(LineSeries, {
           color,
-          lineWidth: width,
+          lineWidth: width as 1 | 2 | 3 | 4,
           priceLineVisible: false,
         });
         s.setData(emaData);

@@ -6,13 +6,18 @@ interface ScanProgress {
   total: number;
 }
 
+interface PostProcessPayload {
+  watch_added: number;
+  trades_created: number;
+}
+
 interface WSState {
   connected: boolean;
   lastScanId: string | null;
   currentScanId: string | null;
   scanProgress: ScanProgress | null;
   streamingSignals: StreamingSignal[];
-  unreadAlerts: number;
+  lastPostProcess: PostProcessPayload | null;
   lastPrices: Record<string, number>;
 }
 
@@ -22,7 +27,7 @@ const initialState: WSState = {
   currentScanId: null,
   scanProgress: null,
   streamingSignals: [],
-  unreadAlerts: 0,
+  lastPostProcess: null,
   lastPrices: {},
 };
 
@@ -52,7 +57,6 @@ export const wsSlice = createSlice({
       state.lastScanId = action.payload;
       state.currentScanId = null;
       state.scanProgress = null;
-      // streamingSignals cleared after RTK Query refresh (see useWebSocket handler)
     },
     clearStreamingSignals: (state) => {
       state.streamingSignals = [];
@@ -62,11 +66,8 @@ export const wsSlice = createSlice({
       state.scanProgress = null;
       state.streamingSignals = [];
     },
-    alertReceived: (state) => {
-      state.unreadAlerts += 1;
-    },
-    alertsRead: (state) => {
-      state.unreadAlerts = 0;
+    postProcessReceived: (state, action: PayloadAction<PostProcessPayload>) => {
+      state.lastPostProcess = action.payload;
     },
     priceUpdated: (state, action: PayloadAction<{ symbol: string; price: number }>) => {
       state.lastPrices[action.payload.symbol] = action.payload.price;
@@ -82,7 +83,6 @@ export const {
   scanCompleted,
   clearStreamingSignals,
   scanFailed,
-  alertReceived,
-  alertsRead,
+  postProcessReceived,
   priceUpdated,
 } = wsSlice.actions;

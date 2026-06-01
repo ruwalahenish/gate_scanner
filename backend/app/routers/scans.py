@@ -1,19 +1,62 @@
 import asyncio
+import hashlib
+import json
 from uuid import uuid4, UUID
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 import asyncpg
 
 from app.dependencies import db_conn, redis_client
 from app.limiter import limiter
 from app.models.scan import TriggerScanRequest, TriggerScanResponse, ScanStatus
 from app.queries.scans import create_scan, get_scan, list_scans, has_running_scan
+from app.queries.signals import get_latest_signals, get_signal_history
+from app.services.scan_service import analyze_symbol_async, fetch_ohlcv_async
 from app.tasks.scanner_tasks import run_scan_task
 import redis.asyncio as aioredis
+
+
+class ScanScheduleUpdate(BaseModel):
+    enabled: bool | None = None
+    cron_expression: str | None = None
+    mode: str | None = None
 
 router = APIRouter(tags=["scans"])
 
 SCAN_LOCK_KEY = "scan:running"
 SCAN_LOCK_TTL = 600  # 10 minutes
+
+_SIGNALS_CACHE_TTL = 30
+_SIGNALS_CACHE_PREFIX = "signals:list"
+
+# Category → user-facing display status
+_DISPLAY_STATUS = {
+    "INVESTMENT": "BUY",
+    "SWING": "BUY",
+    "POSITIONAL": "BUY",
+    "WATCH": "WATCH",
+    "IGNORE": "NO_ACTION",
+}
+
+_DISPLAY_CATEGORY = {
+    "INVESTMENT": "Long-Term Buy",
+    "SWING": "Swing Buy",
+    "POSITIONAL": "Positional Buy",
+    "WATCH": "Watch",
+    "IGNORE": "No Action",
+}
+
+
+def _signals_cache_key(status, category, min_rank, min_gate, side, timeframe, limit, offset) -> str:
+    raw = f"{status}:{category}:{min_rank}:{min_gate}:{side}:{timeframe}:{limit}:{offset}"
+    return f"{_SIGNALS_CACHE_PREFIX}:{hashlib.md5(raw.encode()).hexdigest()}"
+
+
+def _enrich_signal(d: dict) -> dict:
+    cat = d.get("category", "IGNORE")
+    d["display_status"] = _DISPLAY_STATUS.get(cat, "NO_ACTION")
+    d["display_category"] = _DISPLAY_CATEGORY.get(cat, "No Action")
+    return d
 
 
 @router.get("", response_model=list[ScanStatus])
@@ -65,9 +108,144 @@ async def trigger_scan(
 
 
 @router.get("/latest/signals")
-async def get_latest_signals_redirect():
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/api/signals")
+async def get_latest_signals_endpoint(
+    status: str | None = Query(None, pattern="^(BUY|WATCH|NO_ACTION)$"),
+    min_rank: float = Query(0, ge=0, le=100),
+    min_gate: float = Query(0, ge=0, le=100),
+    side: str | None = None,
+    timeframe: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    conn: asyncpg.Connection = Depends(db_conn),
+    redis: aioredis.Redis = Depends(redis_client),
+):
+    """Primary signals endpoint — returns latest scan results with business terminology."""
+    # Map display status filter back to internal categories
+    category_filter = None
+    if status == "BUY":
+        category_filter = None  # handled via post-filter below
+    elif status == "WATCH":
+        category_filter = "WATCH"
+    elif status == "NO_ACTION":
+        category_filter = "IGNORE"
+
+    cache_key = _signals_cache_key(status, category_filter, min_rank, min_gate, side, timeframe, limit, offset)
+    try:
+        cached = await redis.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+
+    rows, total = await get_latest_signals(
+        conn,
+        category=category_filter,
+        min_rank=min_rank,
+        min_gate=min_gate,
+        side=side,
+        timeframe=timeframe,
+        limit=limit if status != "BUY" else 200,
+        offset=offset if status != "BUY" else 0,
+    )
+
+    items = [_enrich_signal(_serialize_signal(r)) for r in rows]
+
+    # BUY filter: keep INVESTMENT/SWING/POSITIONAL only
+    if status == "BUY":
+        items = [i for i in items if i["display_status"] == "BUY"]
+        items = items[offset: offset + limit]
+        total = len(items)
+
+    result = {"total": total, "items": items}
+    try:
+        await redis.set(cache_key, json.dumps(result), ex=_SIGNALS_CACHE_TTL)
+    except Exception:
+        pass
+
+    return result
+
+
+@router.get("/{scan_id}/signals")
+async def get_scan_signals(
+    scan_id: UUID,
+    status: str | None = Query(None, pattern="^(BUY|WATCH|NO_ACTION)$"),
+    min_rank: float = Query(0, ge=0, le=100),
+    min_gate: float = Query(0, ge=0, le=100),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    conn: asyncpg.Connection = Depends(db_conn),
+):
+    """Signals for a specific scan run."""
+    row = await get_scan(conn, scan_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    category_filter = None
+    if status == "WATCH":
+        category_filter = "WATCH"
+    elif status == "NO_ACTION":
+        category_filter = "IGNORE"
+
+    rows, total = await get_latest_signals(
+        conn,
+        category=category_filter,
+        min_rank=min_rank,
+        min_gate=min_gate,
+        limit=limit if status != "BUY" else 200,
+        offset=offset if status != "BUY" else 0,
+    )
+
+    items = [_enrich_signal(_serialize_signal(r)) for r in rows]
+    if status == "BUY":
+        items = [i for i in items if i["display_status"] == "BUY"]
+        items = items[offset: offset + limit]
+        total = len(items)
+
+    return {"total": total, "items": items}
+
+
+@router.get("/schedule")
+async def get_scan_schedule(conn: asyncpg.Connection = Depends(db_conn)):
+    """Return the current scan schedule configuration."""
+    row = await conn.fetchrow("SELECT * FROM scan_schedule WHERE id=1")
+    if not row:
+        return {"enabled": True, "cron_expression": "0 16 * * 1-5", "mode": "nifty500"}
+    return _serialize_schedule(row)
+
+
+@router.put("/schedule")
+async def update_scan_schedule(
+    body: ScanScheduleUpdate,
+    conn: asyncpg.Connection = Depends(db_conn),
+):
+    """Update scan schedule settings (cron expression, enabled flag, mode)."""
+    updates = []
+    params: list = []
+    idx = 1
+    if body.enabled is not None:
+        updates.append(f"enabled=${idx}")
+        params.append(body.enabled)
+        idx += 1
+    if body.cron_expression is not None:
+        updates.append(f"cron_expression=${idx}")
+        params.append(body.cron_expression)
+        idx += 1
+    if body.mode is not None:
+        updates.append(f"mode=${idx}")
+        params.append(body.mode)
+        idx += 1
+
+    if not updates:
+        raise HTTPException(status_code=422, detail="No fields provided for update")
+
+    updates.append(f"updated_at=NOW()")
+    params.append(1)  # WHERE id=1
+    await conn.execute(
+        f"UPDATE scan_schedule SET {', '.join(updates)} WHERE id=${idx}",
+        *params,
+    )
+    row = await conn.fetchrow("SELECT * FROM scan_schedule WHERE id=1")
+    return _serialize_schedule(row)
 
 
 @router.get("/{scan_id}", response_model=ScanStatus)
@@ -79,3 +257,31 @@ async def get_scan_status(
     if not row:
         raise HTTPException(status_code=404, detail="Scan not found")
     return dict(row)
+
+
+def _serialize_schedule(row) -> dict:
+    d = dict(row)
+    for k, v in d.items():
+        if hasattr(v, "isoformat"):
+            d[k] = v.isoformat()
+    return d
+
+
+_JSONB_COLS = {"trailing_plan"}
+
+
+def _serialize_signal(row) -> dict:
+    d = dict(row)
+    for k, v in list(d.items()):
+        if hasattr(v, "isoformat"):
+            d[k] = v.isoformat()
+        elif type(v).__name__ == "UUID":
+            d[k] = str(v)
+        elif type(v).__name__ == "Decimal":
+            d[k] = float(v)
+        elif k in _JSONB_COLS and isinstance(v, str):
+            try:
+                d[k] = json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return d

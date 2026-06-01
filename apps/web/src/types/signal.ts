@@ -1,11 +1,15 @@
 export type SignalCategory = "INVESTMENT" | "SWING" | "POSITIONAL" | "WATCH" | "IGNORE";
 export type SignalSide = "BUY" | "SELL";
+export type DisplayStatus = "BUY" | "WATCH" | "NO_ACTION";
 
 export interface Signal {
   id: string;
   scan_id: string;
   symbol: string;
   category: SignalCategory;
+  // User-facing labels added by the API layer
+  display_status: DisplayStatus | null;
+  display_category: string | null;  // "Long-Term Buy", "Swing Buy", "Positional Buy", "Watch", "No Action"
   side: SignalSide | null;
   signal_timeframe: string | null;
   sl_timeframe: string | null;
@@ -54,7 +58,7 @@ export interface SignalFilters {
   min_rank?: number;
   min_gate?: number;
   side?: SignalSide;
-  timeframe?: string;
+  // timeframe is always "1d" in this platform — not a user-facing filter
   limit?: number;
   offset?: number;
 }

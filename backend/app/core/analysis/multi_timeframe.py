@@ -108,22 +108,29 @@ def alignment_score(mtf: Dict[str, Dict]) -> Dict:
 
 def leading_timeframe(mtf: Dict[str, Dict]) -> Optional[str]:
     """
-    The smallest TF that currently shows a GATE (score >= 55) or a fresh breakout.
-    This is the entry-trigger TF in the GATE Strategy ("expansion begins on smaller TFs").
+    GATE Strategy — Daily Timeframe Edition.
+
+    The entry signal is ALWAYS on the daily (1d) timeframe (config.SCAN_TIMEFRAME).
+    Returns "1d" when the daily bar shows a valid GATE contraction or breakout
+    probability, otherwise None (stock not yet set up on the daily).
+
+    The 4h TF in mtf is used only for SL computation; it is NOT eligible as a
+    leading timeframe because we are a daily-strategy platform.
+    The 1wk TF in mtf is used for HTF confirmation; it is NOT an entry TF.
     """
-    for tf in config.TIMEFRAME_ORDER:           # ascending — smallest first
-        a = mtf.get(tf)
-        if not a or a["data_points"] == 0:
-            continue
-        if a["gate"]["is_gate"]:
-            return tf
-        if a["breakout_prob"] >= 60:
-            return tf
+    target = config.SCAN_TIMEFRAME  # always "1d"
+    a = mtf.get(target)
+    if not a or a["data_points"] == 0:
+        return None
+    if a["gate"]["is_gate"] or a["breakout_prob"] >= 60:
+        return target
     return None
 
 
 def confirmation_timeframe(leading_tf: str) -> Optional[str]:
-    """The next-larger TF — provides HTF confirmation."""
+    """The next-larger TF — provides HTF confirmation.
+    For daily (1d) strategy this will be weekly (1wk).
+    """
     if leading_tf not in config.TIMEFRAME_ORDER:
         return None
     idx = config.TIMEFRAME_ORDER.index(leading_tf)

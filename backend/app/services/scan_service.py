@@ -107,8 +107,11 @@ def _analyze_symbol_sync(symbol: str, timeframes: list[str]) -> dict:
 
 
 async def analyze_symbol_async(symbol: str, timeframes: list[str] | None = None) -> dict:
-    """Async wrapper: runs MTF analysis for a single symbol."""
-    tfs = timeframes or ["60m", "4h", "1d", "1wk", "1mo"]
+    """Async wrapper: runs MTF analysis for a single symbol.
+    Defaults to SCAN_TIMEFRAMES (daily strategy: 4h SL, 1d entry, 1wk confirm).
+    """
+    from app.core.config import SCAN_TIMEFRAMES
+    tfs = timeframes or SCAN_TIMEFRAMES
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(_executor, _analyze_symbol_sync, symbol, tfs)
 

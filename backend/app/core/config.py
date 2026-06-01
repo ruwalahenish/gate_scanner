@@ -226,3 +226,20 @@ BACKTEST_CAPITAL       = 1_000_000     # ₹10 lakh starting capital
 BACKTEST_POSITION_PCT  = 0.05          # 5% of equity per trade
 BACKTEST_MAX_POSITIONS = 10            # max concurrent open positions
 BACKTEST_TIMEFRAME     = "1d"          # GATE strategy works best on daily
+
+# -----------------------------------------------------------------------------
+# DAILY TIMEFRAME STRATEGY — the entire GATE platform operates on 1d bars.
+# -----------------------------------------------------------------------------
+# The entry signal is ALWAYS generated on the daily (1d) timeframe.
+# 4h bars are fetched to compute the SL (SL_TIMEFRAME_MAP["1d"] = "4h").
+# 1wk bars are fetched for HTF confirmation (direction agreement).
+SCAN_TIMEFRAME  = "1d"                  # signal generation TF — never changes
+SCAN_TIMEFRAMES = ["4h", "1d", "1wk"]  # fetch set: SL source | entry | HTF confirm
+
+# -----------------------------------------------------------------------------
+# AUTOMATED PAPER TRADING (automation_service.py)
+# BUY-category signals above this rank trigger automatic paper trades.
+# -----------------------------------------------------------------------------
+AUTO_TRADE_MIN_RANK        = 65    # minimum rank_score (0–100) to auto-enter
+AUTO_TRADE_POSITION_SIZE_PCT = 0.05  # 5% of current_capital per trade
+AUTO_TRADE_MAX_POSITIONS   = 10    # max simultaneous open auto positions

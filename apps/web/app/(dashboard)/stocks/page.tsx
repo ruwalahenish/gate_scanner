@@ -5,6 +5,7 @@ import {
   Box, Typography, Grid, Chip, Button, TextField,
   Select, MenuItem, FormControl, InputLabel, Stack, Tooltip,
   CircularProgress, Alert, LinearProgress,
+  Dialog, DialogTitle, DialogContent, DialogActions, Stepper, Step, StepLabel,
 } from "@mui/material";
 import { DataGrid, type GridColDef, type GridPaginationModel, type GridRowParams } from "@mui/x-data-grid";
 import { Sync, CheckCircle, Schedule, ErrorOutline, Info } from "@mui/icons-material";
@@ -12,7 +13,6 @@ import { useSnackbar } from "notistack";
 import { useSelector } from "react-redux";
 import { StatCard } from "@/components/ui/StatCard";
 import { GATEBar } from "@/components/ui/GATEBar";
-import { CategoryChip } from "@/components/ui/CategoryChip";
 import { formatCompact, formatPrice, formatIST, formatRR } from "@/lib/formatters";
 import {
   useListStocksQuery,
@@ -21,6 +21,114 @@ import {
 } from "@/store/api/stockMasterApi";
 import type { RootState } from "@/store";
 import type { StockFilters, Stock } from "@/types/stock";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Business-terminology status chip for signal column
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SIGNAL_DISPLAY: Record<string, { label: string; color: string }> = {
+  INVESTMENT: { label: "Long-Term Buy",  color: "#22c55e" },
+  SWING:      { label: "Swing Buy",      color: "#6366f1" },
+  POSITIONAL: { label: "Positional Buy", color: "#38bdf8" },
+  WATCH:      { label: "Watch",          color: "#f59e0b" },
+  IGNORE:     { label: "No Action",      color: "#64748b" },
+};
+
+function SignalStatusChip({ category }: { category: string | null }) {
+  if (!category) return <Typography variant="caption" color="text.disabled">—</Typography>;
+  const { label, color } = SIGNAL_DISPLAY[category] ?? { label: category, color: "#64748b" };
+  return (
+    <Chip
+      label={label}
+      size="small"
+      sx={{
+        bgcolor: `${color}1a`,
+        color,
+        border: `1px solid ${color}40`,
+        fontWeight: 600,
+        fontSize: "0.62rem",
+        height: 20,
+        maxWidth: 120,
+      }}
+    />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sync phase dialog
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SYNC_PHASES = [
+  {
+    key: "equity",
+    label:  "Phase 1 — NSE Equity List",
+    detail: "Downloads ~1,900 EQ-series stocks from NSE EQUITY_L.csv",
+  },
+  {
+    key: "index_flags",
+    label:  "Phase 2 — Index Memberships",
+    detail: "Sets Nifty 50 / Next 50 / 500 / Midcap / Smallcap / F&O flags",
+  },
+  {
+    key: "fundamentals",
+    label:  "Phase 3 — Fundamentals (yfinance)",
+    detail: "Enriches sector, PE, PB, market cap for pending stocks (batch, rate-limited)",
+  },
+];
+
+function SyncDialog({
+  open,
+  phases,
+  onClose,
+  onConfirm,
+  syncing,
+}: {
+  open: boolean;
+  phases: string[];
+  onClose: () => void;
+  onConfirm: (phases: string[]) => void;
+  syncing: boolean;
+}) {
+  const activeSteps = SYNC_PHASES.filter((p) => phases.includes(p.key));
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        {phases.length === 3 ? "Full Stock Master Sync" : "Sync Index Memberships"}
+      </DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" color="text.secondary" mb={2}>
+          The following phases will be queued as a background Celery task. This may take several minutes.
+        </Typography>
+        <Stepper orientation="vertical" nonLinear>
+          {activeSteps.map((p, i) => (
+            <Step key={p.key} active completed={false}>
+              <StepLabel>
+                <Typography variant="body2" fontWeight={600}>{p.label}</Typography>
+                <Typography variant="caption" color="text.secondary">{p.detail}</Typography>
+              </StepLabel>
+            </Step>
+          ))}
+        </Stepper>
+        {phases.includes("fundamentals") && (
+          <Alert severity="info" sx={{ mt: 2, fontSize: "0.78rem" }}>
+            Phase 3 enriches stocks in batches of 50 and may run for 10–30 minutes depending on the queue size.
+          </Alert>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={syncing}>Cancel</Button>
+        <Button
+          variant="contained"
+          onClick={() => onConfirm(phases)}
+          disabled={syncing}
+          startIcon={syncing ? <CircularProgress size={14} color="inherit" /> : <Sync />}
+        >
+          {syncing ? "Queuing…" : "Queue Sync"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
 
 const INDEX_OPTIONS = [
   { value: "", label: "All Indices" },
@@ -34,11 +142,12 @@ const INDEX_OPTIONS = [
 ];
 
 const CATEGORY_OPTIONS = [
-  { value: "", label: "All Categories" },
-  { value: "INVESTMENT", label: "Investment" },
-  { value: "SWING", label: "Swing" },
-  { value: "POSITIONAL", label: "Positional" },
-  { value: "WATCH", label: "Watch" },
+  { value: "",           label: "All Signals"    },
+  { value: "INVESTMENT", label: "Long-Term Buy"  },
+  { value: "SWING",      label: "Swing Buy"      },
+  { value: "POSITIONAL", label: "Positional Buy" },
+  { value: "WATCH",      label: "Watch"          },
+  { value: "IGNORE",     label: "No Action"      },
 ];
 
 export default function StocksPage() {
@@ -60,6 +169,7 @@ export default function StocksPage() {
   const [exchange, setExchange] = useState("");
   const [category, setCategory] = useState("");
   const [appliedFilters, setAppliedFilters] = useState<StockFilters>({});
+  const [syncDialog, setSyncDialog] = useState<string[] | null>(null);
 
   const activeFilters: StockFilters = {
     ...appliedFilters,
@@ -71,10 +181,14 @@ export default function StocksPage() {
   const { data: stats, isLoading: statsLoading } = useGetStockStatsQuery();
   const [triggerSync, { isLoading: syncing }] = useTriggerSyncMutation();
 
-  const handleSync = async (phases: string[]) => {
+  const handleSyncConfirm = async (phases: string[]) => {
     try {
       const result = await triggerSync({ phases }).unwrap();
-      enqueueSnackbar(`Sync queued (${result.task_id.slice(0, 8)}…)`, { variant: "success" });
+      enqueueSnackbar(
+        `${phases.length === 3 ? "Full sync" : "Index sync"} queued (${result.task_id.slice(0, 8)}…) — running in background`,
+        { variant: "success", autoHideDuration: 5000 }
+      );
+      setSyncDialog(null);
     } catch {
       enqueueSnackbar("Failed to queue sync — is Celery running?", { variant: "error" });
     }
@@ -157,10 +271,9 @@ export default function StocksPage() {
     },
     {
       field: "latest_category",
-      headerName: "Signal",
-      width: 105,
-      renderCell: (p) =>
-        p.value ? <CategoryChip category={p.value} /> : <Typography color="text.disabled" variant="caption">—</Typography>,
+      headerName: "Signal Status",
+      width: 130,
+      renderCell: (p) => <SignalStatusChip category={p.value} />,
     },
     {
       field: "latest_gate_strength",
@@ -260,17 +373,17 @@ export default function StocksPage() {
         <Stack direction="row" spacing={1}>
           <Button
             variant="outlined" size="small"
-            startIcon={syncing ? <CircularProgress size={14} /> : <Sync />}
+            startIcon={<Sync />}
             disabled={syncing}
-            onClick={() => handleSync(["equity", "index_flags"])}
+            onClick={() => setSyncDialog(["equity", "index_flags"])}
           >
             Sync Indices
           </Button>
           <Button
             variant="contained" size="small"
-            startIcon={syncing ? <CircularProgress size={14} /> : <Sync />}
+            startIcon={<Sync />}
             disabled={syncing}
-            onClick={() => handleSync(["equity", "index_flags", "fundamentals"])}
+            onClick={() => setSyncDialog(["equity", "index_flags", "fundamentals"])}
           >
             Full Sync
           </Button>
@@ -373,6 +486,15 @@ export default function StocksPage() {
           "& .MuiDataGrid-row:hover": { bgcolor: "rgba(99,102,241,0.06)" },
           "& .MuiDataGrid-columnHeaders": { bgcolor: "rgba(255,255,255,0.03)" },
         }}
+      />
+
+      {/* Sync phase dialog */}
+      <SyncDialog
+        open={syncDialog !== null}
+        phases={syncDialog ?? []}
+        onClose={() => setSyncDialog(null)}
+        onConfirm={handleSyncConfirm}
+        syncing={syncing}
       />
     </Box>
   );

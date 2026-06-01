@@ -1,6 +1,6 @@
 from pydantic import BaseModel, UUID4
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 
 class SignalModel(BaseModel):
@@ -8,6 +8,9 @@ class SignalModel(BaseModel):
     scan_id: UUID4
     symbol: str
     category: str
+    # User-facing labels (populated by router layer, not stored in DB)
+    display_status: Optional[Literal["BUY", "WATCH", "NO_ACTION"]] = None
+    display_category: Optional[str] = None  # "Long-Term Buy", "Swing Buy", etc.
     side: Optional[str] = None
     signal_timeframe: Optional[str] = None
     sl_timeframe: Optional[str] = None

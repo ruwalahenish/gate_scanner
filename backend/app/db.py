@@ -16,10 +16,13 @@ async def create_pool() -> asyncpg.Pool:
         min_size=2,
         max_size=20,
         command_timeout=30,
-        statement_cache_size=200,
-        # Proactively replace connections idle >4 min so NeonDB's 5-min
+        # Neon uses PgBouncer in transaction mode — prepared statements
+        # are NOT portable across multiplexed backend connections, so
+        # caching them causes "connection closed mid-operation" errors.
+        statement_cache_size=0,
+        # Proactively replace connections idle >3 min so NeonDB's 5-min
         # idle timeout never surprises us mid-request.
-        max_inactive_connection_lifetime=240,
+        max_inactive_connection_lifetime=180,
     )
     log.info("db_pool_created", min=2, max=20)
 
@@ -38,8 +41,8 @@ async def create_read_pool(dsn: str) -> asyncpg.Pool:
         min_size=1,
         max_size=10,
         command_timeout=30,
-        statement_cache_size=200,
-        max_inactive_connection_lifetime=240,
+        statement_cache_size=0,
+        max_inactive_connection_lifetime=180,
     )
     log.info("db_read_pool_created", min=1, max=10)
     return _read_pool

@@ -33,14 +33,18 @@ async def create_position(
     t3: float | None = None,
     signal_id: UUID | None = None,
     notes: str | None = None,
+    auto_created: bool = False,
+    creation_source: str = "manual",
 ) -> UUID:
     pos_id = uuid4()
     await conn.execute(
         """INSERT INTO positions
-           (id, symbol, side, quantity, avg_entry, stop_loss, t1, t2, t3, signal_id, notes)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)""",
+           (id, symbol, side, quantity, avg_entry, stop_loss, t1, t2, t3,
+            signal_id, notes, auto_created, creation_source)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)""",
         pos_id, symbol, side, quantity, avg_entry,
         stop_loss, t1, t2, t3, signal_id, notes,
+        auto_created, creation_source,
     )
     return pos_id
 

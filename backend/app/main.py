@@ -18,9 +18,8 @@ from app.metrics import setup_metrics
 from app.redis_client import create_redis, close_redis
 from app.exceptions import GATEBaseError
 from app.services.ws_manager import manager
-from app.services.alert_engine import alert_engine
 from app.routers import (
-    signals, portfolio, alerts, scans,
+    signals, paper_trading, scans, dashboard,
     universe, watchlist, market, backtests, stock_master,
 )
 
@@ -46,13 +45,11 @@ async def lifespan(_app: FastAPI):
     await create_pool()
     redis = await create_redis()
     asyncio.create_task(manager.listen_redis(redis))
-    await alert_engine.start()
     log.info("startup_complete")
 
     yield  # ← application runs here
 
     # ── Shutdown ─────────────────────────────────────────────────────
-    await alert_engine.stop()
     await close_pool()
     await close_redis()
     from app.services.scan_service import _executor as scan_executor
@@ -113,6 +110,52 @@ async def health():
     return {"ok": True, "service": "gate-trading-api", "version": "1.0.0"}
 
 
+@app.get("/api/health/detailed")
+async def health_detailed():
+    """Extended health — DB pool stats, Redis ping, last scan info."""
+    from app.db import get_pool
+    from app.redis_client import get_redis
+
+    result: dict = {"db_ok": False, "redis_ok": False}
+
+    # ── DB pool ────────────────────────────────────────────────────────
+    try:
+        pool = get_pool()
+        result["db_ok"] = True
+        result["db_pool_size"] = pool.get_size()
+        result["db_pool_idle"] = pool.get_idle_size()
+    except Exception as exc:
+        result["db_error"] = str(exc)
+
+    # ── Redis ──────────────────────────────────────────────────────────
+    try:
+        redis = get_redis()
+        await redis.ping()
+        result["redis_ok"] = True
+    except Exception as exc:
+        result["redis_error"] = str(exc)
+
+    # ── Last scan ──────────────────────────────────────────────────────
+    try:
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT triggered_at, completed_at, duration_sec, signals_found "
+                "FROM scans WHERE status='done' ORDER BY triggered_at DESC LIMIT 1"
+            )
+        if row:
+            result["last_scan_at"] = row["triggered_at"].isoformat() if row["triggered_at"] else None
+            result["last_scan_completed_at"] = row["completed_at"].isoformat() if row["completed_at"] else None
+            result["last_scan_duration_sec"] = float(row["duration_sec"]) if row["duration_sec"] else None
+            result["last_scan_signals"] = row["signals_found"]
+        else:
+            result["last_scan_at"] = None
+    except Exception:
+        result["last_scan_at"] = None
+
+    return result
+
+
 # WebSocket endpoint
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
@@ -128,12 +171,12 @@ async def websocket_endpoint(ws: WebSocket):
 
 # Mount routers — both /api/ (legacy) and /api/v1/ (versioned, forward-compatible)
 for prefix in ("/api", "/api/v1"):
-    app.include_router(scans.router,        prefix=f"{prefix}/scans")
-    app.include_router(signals.router,      prefix=f"{prefix}/signals")
-    app.include_router(portfolio.router,    prefix=f"{prefix}/portfolio")
-    app.include_router(alerts.router,       prefix=f"{prefix}/alerts")
-    app.include_router(universe.router,     prefix=f"{prefix}/universe")
-    app.include_router(watchlist.router,    prefix=f"{prefix}/watchlist")
-    app.include_router(market.router,       prefix=f"{prefix}/market")
-    app.include_router(backtests.router,    prefix=f"{prefix}/backtests")
-    app.include_router(stock_master.router, prefix=f"{prefix}/stocks")
+    app.include_router(dashboard.router,      prefix=f"{prefix}/dashboard")
+    app.include_router(scans.router,          prefix=f"{prefix}/scans")
+    app.include_router(signals.router,        prefix=f"{prefix}/signals")   # legacy; unmounted in M5
+    app.include_router(paper_trading.router,  prefix=f"{prefix}/paper-trading")
+    app.include_router(universe.router,       prefix=f"{prefix}/universe")
+    app.include_router(watchlist.router,      prefix=f"{prefix}/watchlist")
+    app.include_router(market.router,         prefix=f"{prefix}/market")
+    app.include_router(backtests.router,      prefix=f"{prefix}/backtests")
+    app.include_router(stock_master.router,   prefix=f"{prefix}/stocks")

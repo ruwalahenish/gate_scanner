@@ -30,9 +30,12 @@ class MarketScannerAgent(BaseAgent):
     ):
         super().__init__()
         self.universe   = universe or config.DEFAULT_UNIVERSE
-        # "4h" is required because SL_TIMEFRAME_MAP["1d"] = "4h".
-        # Without it, daily signals fall back to ATR-based SL silently.
-        self.timeframes = timeframes or ["15m", "60m", "4h", "1d", "1wk", "1mo"]
+        # GATE Strategy — Daily TF platform.
+        # config.SCAN_TIMEFRAMES = ["4h", "1d", "1wk"]:
+        #   4h  — SL source   (SL_TIMEFRAME_MAP["1d"] = "4h")
+        #   1d  — entry signal (SCAN_TIMEFRAME)
+        #   1wk — HTF confirmation
+        self.timeframes = timeframes or config.SCAN_TIMEFRAMES
         self.max_workers = max_workers
         self.min_price  = min_price
         self.min_volume = min_volume

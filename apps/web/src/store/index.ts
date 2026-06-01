@@ -1,29 +1,33 @@
 import { configureStore } from "@reduxjs/toolkit";
-import { signalsApi } from "./api/signalsApi";
-import { portfolioApi } from "./api/portfolioApi";
-import { alertsApi } from "./api/alertsApi";
+import { scannerApi } from "./api/scannerApi";
+import { paperTradingApi } from "./api/paperTradingApi";
+import { watchlistApi } from "./api/watchlistApi";
 import { marketApi } from "./api/marketApi";
 import { stockMasterApi } from "./api/stockMasterApi";
+// Legacy — still used by stock detail pages; will be removed in M7
+import { signalsApi } from "./api/signalsApi";
 import { wsSlice } from "./slices/wsSlice";
 import { uiSlice } from "./slices/uiSlice";
 
 export const store = configureStore({
   reducer: {
-    ui:                             uiSlice.reducer,
-    ws:                             wsSlice.reducer,
-    [signalsApi.reducerPath]:       signalsApi.reducer,
-    [portfolioApi.reducerPath]:     portfolioApi.reducer,
-    [alertsApi.reducerPath]:        alertsApi.reducer,
-    [marketApi.reducerPath]:        marketApi.reducer,
-    [stockMasterApi.reducerPath]:   stockMasterApi.reducer,
+    ui:                               uiSlice.reducer,
+    ws:                               wsSlice.reducer,
+    [scannerApi.reducerPath]:         scannerApi.reducer,
+    [paperTradingApi.reducerPath]:    paperTradingApi.reducer,
+    [watchlistApi.reducerPath]:       watchlistApi.reducer,
+    [marketApi.reducerPath]:          marketApi.reducer,
+    [stockMasterApi.reducerPath]:     stockMasterApi.reducer,
+    [signalsApi.reducerPath]:         signalsApi.reducer,
   },
   middleware: (getDefault) =>
     getDefault().concat(
-      signalsApi.middleware,
-      portfolioApi.middleware,
-      alertsApi.middleware,
+      scannerApi.middleware,
+      paperTradingApi.middleware,
+      watchlistApi.middleware,
       marketApi.middleware,
       stockMasterApi.middleware,
+      signalsApi.middleware,
     ),
 });
 

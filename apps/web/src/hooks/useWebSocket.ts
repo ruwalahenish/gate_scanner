@@ -11,18 +11,18 @@ import {
   scanCompleted,
   clearStreamingSignals,
   scanFailed,
-  alertReceived,
+  postProcessReceived,
   priceUpdated,
 } from "@/store/slices/wsSlice";
-import { signalsApi } from "@/store/api/signalsApi";
-import { portfolioApi } from "@/store/api/portfolioApi";
-import { alertsApi } from "@/store/api/alertsApi";
+import { scannerApi } from "@/store/api/scannerApi";
+import { paperTradingApi } from "@/store/api/paperTradingApi";
+import { watchlistApi } from "@/store/api/watchlistApi";
 import { stockMasterApi } from "@/store/api/stockMasterApi";
 import type { AppDispatch } from "@/store";
 
 export function useWebSocket() {
   const dispatch = useDispatch<AppDispatch>();
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsRef   = useRef<WebSocket | null>(null);
   const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -33,18 +33,12 @@ export function useWebSocket() {
       ws = new WebSocket(WS_URL);
       wsRef.current = ws;
 
-      ws.onopen = () => {
-        dispatch(setConnected(true));
-      };
-
+      ws.onopen  = () => dispatch(setConnected(true));
       ws.onclose = () => {
         dispatch(setConnected(false));
         retryTimeout = setTimeout(connect, 3000);
       };
-
-      ws.onerror = () => {
-        ws.close();
-      };
+      ws.onerror = () => ws.close();
 
       ws.onmessage = (event) => {
         try {
@@ -58,7 +52,6 @@ export function useWebSocket() {
 
     connect();
 
-    // Keepalive ping every 25s
     pingRef.current = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: "ping" }));
@@ -85,7 +78,7 @@ function handleMessage(
 
     case "scan.progress":
       dispatch(scanProgressReceived({
-        done: msg.payload.symbols_done as number,
+        done:  msg.payload.symbols_done  as number,
         total: msg.payload.symbols_total as number,
       }));
       break;
@@ -93,19 +86,15 @@ function handleMessage(
     case "scan.batch":
       dispatch(scanBatchReceived({
         signals: (msg.payload.signals as []) ?? [],
-        done: msg.payload.done as number,
-        total: msg.payload.total as number,
+        done:    msg.payload.done  as number,
+        total:   msg.payload.total as number,
       }));
       break;
 
     case "scan.complete":
       dispatch(scanCompleted(msg.payload.scan_id as string));
-      // Invalidate signal/scan cache (dashboard + signal queries)
-      dispatch(signalsApi.util.invalidateTags(["Signal", "Scan"]));
-      // Invalidate stock cache — this makes the /stocks page auto-refresh its
-      // GATE columns (latest_category, latest_gate_strength, entry, SL, etc.)
+      dispatch(scannerApi.util.invalidateTags(["Signal", "Scan", "Dashboard"]));
       dispatch(stockMasterApi.util.invalidateTags(["Stock"]));
-      // Clear streaming signals after a short delay (allow RTK Query to repopulate first)
       setTimeout(() => dispatch(clearStreamingSignals()), 2000);
       enqueueSnackbar(
         `Scan complete — ${msg.payload.signals_count} signals found`,
@@ -113,21 +102,27 @@ function handleMessage(
       );
       break;
 
-    case "alert.triggered":
-      dispatch(alertReceived());
-      dispatch(alertsApi.util.invalidateTags(["Alert"]));
-      enqueueSnackbar(msg.payload.message as string, {
-        variant: "warning",
-        autoHideDuration: 8000,
-      });
+    case "scan.post_process": {
+      const watch  = msg.payload.watch_added    as number;
+      const trades = msg.payload.trades_created as number;
+      dispatch(postProcessReceived({ watch_added: watch, trades_created: trades }));
+      dispatch(watchlistApi.util.invalidateTags(["Watchlist"]));
+      dispatch(paperTradingApi.util.invalidateTags(["Position", "Trade", "Summary", "Performance"]));
+      if (watch > 0 || trades > 0) {
+        enqueueSnackbar(
+          `Post-scan: ${watch} added to watchlist · ${trades} paper trade${trades !== 1 ? "s" : ""} created`,
+          { variant: "info", autoHideDuration: 6000 }
+        );
+      }
       break;
+    }
 
     case "price.update":
       dispatch(priceUpdated({
         symbol: msg.payload.symbol as string,
-        price: msg.payload.price as number,
+        price:  msg.payload.price  as number,
       }));
-      dispatch(portfolioApi.util.invalidateTags(["Position", "Summary"]));
+      dispatch(paperTradingApi.util.invalidateTags(["Position", "Summary"]));
       break;
 
     case "scan.failed":

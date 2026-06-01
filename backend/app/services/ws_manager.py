@@ -23,7 +23,7 @@ CHANNELS = [
     "scan:progress",
     "scan:complete",
     "scan:batch",
-    "alert:triggered",
+    "scan:post_process",
     "price:update",
 ]
 

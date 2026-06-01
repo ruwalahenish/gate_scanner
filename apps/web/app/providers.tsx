@@ -18,9 +18,11 @@ export function Providers({ children }: { children: ReactNode }) {
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <SnackbarProvider
-          maxSnack={5}
+          maxSnack={4}
           anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-          autoHideDuration={5000}
+          autoHideDuration={4500}
+          dense
+          style={{ fontSize: "0.82rem" }}
         >
           <WSInitializer />
           {children}
