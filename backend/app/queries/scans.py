@@ -44,6 +44,18 @@ async def list_scans(
     )
 
 
+async def has_running_scan(conn: asyncpg.Connection, within_seconds: int = 600) -> bool:
+    """Return True only if a scan started recently is still pending/running."""
+    row = await conn.fetchrow(
+        """SELECT 1 FROM scans
+           WHERE status IN ('pending', 'running')
+             AND triggered_at > NOW() - ($1 || ' seconds')::INTERVAL
+           LIMIT 1""",
+        str(within_seconds),
+    )
+    return row is not None
+
+
 async def get_latest_done_scan_id(conn: asyncpg.Connection) -> UUID | None:
     row = await conn.fetchrow(
         "SELECT id FROM scans WHERE status='done' ORDER BY triggered_at DESC LIMIT 1"

@@ -13,6 +13,9 @@ async def create_pool() -> asyncpg.Pool:
         max_size=10,
         command_timeout=30,
         statement_cache_size=100,
+        # Proactively replace connections idle longer than 4 min so NeonDB's
+        # 5-minute idle timeout never surprises us during long Celery tasks.
+        max_inactive_connection_lifetime=240,
     )
     return _pool
 

@@ -5,14 +5,19 @@ import { enqueueSnackbar } from "notistack";
 import { WS_URL } from "@/lib/constants";
 import {
   setConnected,
+  scanStarted,
   scanProgressReceived,
+  scanBatchReceived,
   scanCompleted,
+  clearStreamingSignals,
+  scanFailed,
   alertReceived,
   priceUpdated,
 } from "@/store/slices/wsSlice";
 import { signalsApi } from "@/store/api/signalsApi";
 import { portfolioApi } from "@/store/api/portfolioApi";
 import { alertsApi } from "@/store/api/alertsApi";
+import { stockMasterApi } from "@/store/api/stockMasterApi";
 import type { AppDispatch } from "@/store";
 
 export function useWebSocket() {
@@ -34,7 +39,6 @@ export function useWebSocket() {
 
       ws.onclose = () => {
         dispatch(setConnected(false));
-        // Auto-reconnect after 3s
         retryTimeout = setTimeout(connect, 3000);
       };
 
@@ -46,8 +50,8 @@ export function useWebSocket() {
         try {
           const msg = JSON.parse(event.data as string);
           handleMessage(msg, dispatch);
-        } catch {
-          // ignore malformed messages
+        } catch (e) {
+          console.warn("[ws] malformed message", e);
         }
       };
     };
@@ -57,7 +61,7 @@ export function useWebSocket() {
     // Keepalive ping every 25s
     pingRef.current = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send("ping");
+        wsRef.current.send(JSON.stringify({ type: "ping" }));
       }
     }, 25_000);
 
@@ -69,9 +73,13 @@ export function useWebSocket() {
   }, [dispatch]);
 }
 
-function handleMessage(msg: { type: string; payload: Record<string, unknown> }, dispatch: AppDispatch) {
+function handleMessage(
+  msg: { type: string; payload: Record<string, unknown> },
+  dispatch: AppDispatch
+) {
   switch (msg.type) {
     case "scan.started":
+      dispatch(scanStarted(msg.payload.scan_id as string | undefined));
       enqueueSnackbar("Scan started…", { variant: "info", autoHideDuration: 3000 });
       break;
 
@@ -82,9 +90,23 @@ function handleMessage(msg: { type: string; payload: Record<string, unknown> }, 
       }));
       break;
 
+    case "scan.batch":
+      dispatch(scanBatchReceived({
+        signals: (msg.payload.signals as []) ?? [],
+        done: msg.payload.done as number,
+        total: msg.payload.total as number,
+      }));
+      break;
+
     case "scan.complete":
       dispatch(scanCompleted(msg.payload.scan_id as string));
+      // Invalidate signal/scan cache (dashboard + signal queries)
       dispatch(signalsApi.util.invalidateTags(["Signal", "Scan"]));
+      // Invalidate stock cache — this makes the /stocks page auto-refresh its
+      // GATE columns (latest_category, latest_gate_strength, entry, SL, etc.)
+      dispatch(stockMasterApi.util.invalidateTags(["Stock"]));
+      // Clear streaming signals after a short delay (allow RTK Query to repopulate first)
+      setTimeout(() => dispatch(clearStreamingSignals()), 2000);
       enqueueSnackbar(
         `Scan complete — ${msg.payload.signals_count} signals found`,
         { variant: "success", autoHideDuration: 5000 }
@@ -106,6 +128,14 @@ function handleMessage(msg: { type: string; payload: Record<string, unknown> }, 
         price: msg.payload.price as number,
       }));
       dispatch(portfolioApi.util.invalidateTags(["Position", "Summary"]));
+      break;
+
+    case "scan.failed":
+      dispatch(scanFailed());
+      enqueueSnackbar(
+        `Scan failed: ${(msg.payload.error as string) ?? "unknown error"}`,
+        { variant: "error", autoHideDuration: 6000 }
+      );
       break;
 
     case "backtest.complete":

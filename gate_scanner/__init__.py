@@ -1,3 +1,0 @@
-"""
-gate_scanner package
-"""

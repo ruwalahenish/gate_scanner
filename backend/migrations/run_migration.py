@@ -9,8 +9,8 @@ Usage:
 import os
 import sys
 import re
-import psycopg2
-import psycopg2.errors
+import asyncio
+import asyncpg
 
 
 def get_database_url():
@@ -32,17 +32,33 @@ def get_database_url():
     sys.exit(1)
 
 
+def strip_comments(line):
+    """Strip standard single-line '--' comments not within single quotes."""
+    in_quote = False
+    i = 0
+    while i < len(line) - 1:
+        if line[i] == "'":
+            in_quote = not in_quote
+            i += 1
+        elif line[i:i+2] == "--" and not in_quote:
+            return line[:i]
+        else:
+            i += 1
+    return line
+
+
 def split_sql_statements(sql):
     """
     Split SQL into statements, respecting DO $$ ... END $$; blocks
-    which contain semicolons internally.
+    which contain semicolons internally, and ignoring semicolons inside comments.
     """
     statements = []
     current = []
     in_dollar_block = False
 
     for line in sql.split("\n"):
-        stripped = line.strip()
+        stripped_line = strip_comments(line)
+        stripped = stripped_line.strip()
 
         # Detect start of DO $$ block
         if re.match(r"^DO\s+\$\$", stripped, re.IGNORECASE):
@@ -63,13 +79,15 @@ def split_sql_statements(sql):
             continue
 
         # Normal mode: split on semicolons
-        if ";" in line:
-            parts = line.split(";", 1)
-            current.append(parts[0])
+        if ";" in stripped_line:
+            idx = stripped_line.index(";")
+            part0 = line[:idx]
+            current.append(part0)
             stmt = "\n".join(current).strip()
             if stmt:
                 statements.append(stmt)
-            current = [parts[1]] if parts[1].strip() else []
+            leftover = line[idx+1:]
+            current = [leftover] if leftover.strip() else []
         else:
             current.append(line)
 
@@ -81,16 +99,14 @@ def split_sql_statements(sql):
     return statements
 
 
-def run_migration(sql_file):
+async def run_migration(sql_file):
     """Execute a SQL migration file statement-by-statement."""
     db_url = get_database_url()
     display_url = db_url.split("@")[-1] if "@" in db_url else db_url
     print(f"\n  Connecting to: ...@{display_url}")
 
-    conn = psycopg2.connect(db_url)
-    conn.autocommit = True
-    cur = conn.cursor()
-
+    conn = await asyncpg.connect(db_url)
+    
     with open(sql_file, "r", encoding="utf-8") as f:
         sql = f.read()
 
@@ -107,31 +123,25 @@ def run_migration(sql_file):
             continue
 
         try:
-            cur.execute(stmt)
+            async with conn.transaction():
+                await conn.execute(stmt)
             success += 1
-        except psycopg2.errors.DuplicateObject as e:
-            conn.rollback()
-            conn.autocommit = True
+        except asyncpg.exceptions.DuplicateObjectError as e:
             skipped += 1
             msg = str(e).strip().split("\n")[0]
             print(f"  SKIP: {msg}")
-        except psycopg2.errors.DuplicateTable as e:
-            conn.rollback()
-            conn.autocommit = True
+        except asyncpg.exceptions.DuplicateTableError as e:
             skipped += 1
             msg = str(e).strip().split("\n")[0]
             print(f"  SKIP: {msg}")
         except Exception as e:
-            conn.rollback()
-            conn.autocommit = True
             errors += 1
             msg = str(e).strip().split("\n")[0]
             first_line = lines[0][:80] if lines else "?"
             print(f"  ERROR: {msg}")
             print(f"    SQL: {first_line}...")
 
-    cur.close()
-    conn.close()
+    await conn.close()
 
     print(f"\n  Migration complete!")
     print(f"    {success} statements executed")
@@ -155,5 +165,6 @@ if __name__ == "__main__":
         sys.exit(1)
 
     print(f"  Running migration: {os.path.basename(sql_file)}")
-    ok = run_migration(sql_file)
+    ok = asyncio.run(run_migration(sql_file))
     sys.exit(0 if ok else 1)
+

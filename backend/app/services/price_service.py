@@ -63,11 +63,14 @@ async def get_bulk_prices(
         return {}
 
     result: dict[str, float] = {}
-    missing: list[str] = []
 
-    for sym in symbols:
-        cached = await redis.get(f"price:{sym}")
-        if cached:
+    # Fetch all cached prices in a single MGET round-trip instead of one GET per symbol
+    keys = [f"price:{s}" for s in symbols]
+    cached_values = await redis.mget(*keys)
+
+    missing: list[str] = []
+    for sym, cached in zip(symbols, cached_values):
+        if cached is not None:
             result[sym] = float(cached)
         else:
             missing.append(sym)
@@ -75,8 +78,11 @@ async def get_bulk_prices(
     if missing:
         loop = asyncio.get_event_loop()
         fetched = await loop.run_in_executor(_executor, _fetch_prices_sync, missing)
+        pipe = redis.pipeline()
         for sym, price in fetched.items():
             result[sym] = price
-            await redis.setex(f"price:{sym}", 60, str(price))
+            pipe.setex(f"price:{sym}", 60, str(price))
+        if fetched:
+            await pipe.execute()
 
     return result

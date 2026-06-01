@@ -5,7 +5,7 @@ import asyncpg
 
 from app.dependencies import db_conn, redis_client
 from app.models.scan import TriggerScanRequest, TriggerScanResponse, ScanStatus
-from app.queries.scans import create_scan, get_scan, list_scans
+from app.queries.scans import create_scan, get_scan, list_scans, has_running_scan
 from app.tasks.scanner_tasks import run_scan_task
 from app.exceptions import ScanInProgressError
 import redis.asyncio as aioredis
@@ -36,7 +36,14 @@ async def trigger_scan(
     try:
         locked = await redis.set(SCAN_LOCK_KEY, "1", nx=True, ex=SCAN_LOCK_TTL)
         if not locked:
-            raise HTTPException(status_code=409, detail="A scan is already in progress. Try again later.")
+            # Lock exists — verify it's legitimate. If no scan is actually running
+            # in the DB the lock is stale (e.g. from a crashed worker) and safe to clear.
+            actually_running = await has_running_scan(conn)
+            if not actually_running:
+                await redis.delete(SCAN_LOCK_KEY)
+                locked = await redis.set(SCAN_LOCK_KEY, "1", nx=True, ex=SCAN_LOCK_TTL)
+            if not locked:
+                raise HTTPException(status_code=409, detail="A scan is already in progress. Try again later.")
     except HTTPException:
         raise
     except Exception:

@@ -58,11 +58,15 @@ export function GATEChart({ bars, signal, height = 480, loading = false }: GATEC
     let chart: IChartApi;
 
     // Dynamic import to avoid SSR issues
-    import("lightweight-charts").then(({ createChart, ColorType, LineStyle }) => {
+    // lightweight-charts v5 uses chart.addSeries(SeriesType, options) instead of
+    // chart.addCandlestickSeries() / chart.addLineSeries()
+    import("lightweight-charts").then((lw) => {
       if (!containerRef.current) return;
 
+      const { createChart, CandlestickSeries, LineSeries, ColorType, LineStyle } = lw as any;
+
       chart = createChart(containerRef.current, {
-        width: containerRef.current.clientWidth,
+        autoSize: true,
         height,
         layout: {
           background: { type: ColorType.Solid, color: "#1a1a24" },
@@ -83,8 +87,8 @@ export function GATEChart({ bars, signal, height = 480, loading = false }: GATEC
 
       chartRef.current = chart;
 
-      // Candlestick series
-      const candles = chart.addCandlestickSeries({
+      // Candlestick series (v5 API)
+      const candles = chart.addSeries(CandlestickSeries, {
         upColor: "#22c55e",
         downColor: "#ef4444",
         borderUpColor: "#22c55e",
@@ -102,17 +106,21 @@ export function GATEChart({ bars, signal, height = 480, loading = false }: GATEC
         }))
       );
 
-      // EMA overlays
+      // EMA overlays (v5 API)
       EMA_CONFIG.forEach(({ key, color, width }) => {
         const emaData = bars
           .filter((b) => b[key] != null)
           .map((b) => ({ time: b.time as unknown as string, value: b[key] as number }));
         if (!emaData.length) return;
-        const s = chart.addLineSeries({ color, lineWidth: width as 1 | 2 | 3 | 4, priceLineVisible: false });
+        const s = chart.addSeries(LineSeries, {
+          color,
+          lineWidth: width,
+          priceLineVisible: false,
+        });
         s.setData(emaData);
       });
 
-      // Signal level horizontal lines
+      // Signal level horizontal lines (v5 API)
       if (signal && bars.length) {
         const firstTime = bars[0].time as unknown as string;
         const lastTime = bars[bars.length - 1].time as unknown as string;
@@ -120,7 +128,7 @@ export function GATEChart({ bars, signal, height = 480, loading = false }: GATEC
         LEVEL_CONFIG.forEach(({ key, color, dash }) => {
           const val = signal[key];
           if (!val) return;
-          const s = chart.addLineSeries({
+          const s = chart.addSeries(LineSeries, {
             color,
             lineWidth: 1,
             lineStyle: dash ? LineStyle.Dashed : LineStyle.Solid,
@@ -135,16 +143,6 @@ export function GATEChart({ bars, signal, height = 480, loading = false }: GATEC
       }
 
       chart.timeScale().fitContent();
-
-      // Responsive resize
-      const ro = new ResizeObserver(() => {
-        if (containerRef.current && chartRef.current) {
-          chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
-        }
-      });
-      ro.observe(containerRef.current);
-
-      return () => ro.disconnect();
     });
 
     return () => {

@@ -1,5 +1,6 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 import asyncpg
 
 from app.dependencies import db_conn, redis_client
@@ -11,6 +12,10 @@ from app.exceptions import InsufficientCapitalError, PositionNotFoundError
 import redis.asyncio as aioredis
 
 router = APIRouter(tags=["portfolio"])
+
+
+class CapitalUpdate(BaseModel):
+    amount: float = Field(..., gt=0, description="New capital amount in INR")
 
 
 @router.get("/summary", response_model=PortfolioSummary)
@@ -105,6 +110,16 @@ async def sell(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.put("/capital")
+async def set_capital(
+    body: CapitalUpdate,
+    conn: asyncpg.Connection = Depends(db_conn),
+):
+    """Reset available capital (both initial and current) to the given amount."""
+    await q.reset_capital(conn, body.amount)
+    return {"updated": True, "amount": body.amount}
+
+
 @router.put("/positions/{position_id}/sl")
 async def update_sl(
     position_id: UUID,
@@ -124,6 +139,8 @@ def _serialize(row) -> dict:
     for k, v in d.items():
         if hasattr(v, "isoformat"):
             d[k] = v.isoformat()
-        elif type(v).__name__ in ("UUID", "Decimal"):
+        elif type(v).__name__ == "UUID":
             d[k] = str(v)
+        elif type(v).__name__ == "Decimal":
+            d[k] = float(v)
     return d

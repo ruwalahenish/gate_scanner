@@ -143,11 +143,23 @@ export function SignalTable({
     {
       field: "symbol",
       headerName: "Symbol",
-      width: 100,
+      width: 120,
       renderCell: (p) => (
-        <Typography variant="body2" fontWeight={700} color="primary.light">
-          {p.value}
-        </Typography>
+        <Box>
+          <Typography variant="body2" fontWeight={700} color="primary.light" lineHeight={1.2}>
+            {p.value}
+          </Typography>
+          {p.row.company_name && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              noWrap
+              sx={{ display: "block", maxWidth: 110, fontSize: "0.65rem" }}
+            >
+              {p.row.company_name}
+            </Typography>
+          )}
+        </Box>
       ),
     },
     {

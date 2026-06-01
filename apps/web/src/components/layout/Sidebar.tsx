@@ -5,7 +5,7 @@ import {
 } from "@mui/material";
 import {
   Dashboard, ShowChart, AccountBalance, Star, Notifications,
-  BarChart, Settings, FlashOn,
+  BarChart, Settings, TableChart,
 } from "@mui/icons-material";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -16,13 +16,13 @@ const DRAWER_WIDTH = 220;
 
 const NAV = [
   { label: "Dashboard",  href: "/",            icon: <Dashboard /> },
-  { label: "Signals",    href: "/signals",      icon: <FlashOn /> },
   { label: "Portfolio",  href: "/portfolio",    icon: <AccountBalance /> },
   { label: "Watchlist",  href: "/watchlist",    icon: <Star /> },
   { label: "Alerts",     href: "/alerts",       icon: <Notifications /> },
   { label: "Analytics",  href: "/analytics",    icon: <BarChart /> },
   { label: "Backtest",   href: "/analytics/backtest", icon: <ShowChart /> },
-  { label: "Settings",   href: "/settings",     icon: <Settings /> },
+  { label: "Stocks",     href: "/stocks",        icon: <TableChart /> },
+  { label: "Settings",   href: "/settings",      icon: <Settings /> },
 ];
 
 export function Sidebar() {

@@ -10,9 +10,17 @@ import redis.asyncio as aioredis
 from fastapi import WebSocket
 import structlog
 
+from app.core.json_utils import CustomEncoder
+
 log = structlog.get_logger()
 
-CHANNELS = ["scan:progress", "scan:complete", "alert:triggered", "price:update"]
+CHANNELS = [
+    "scan:progress",
+    "scan:complete",
+    "scan:batch",
+    "alert:triggered",
+    "price:update",
+]
 
 
 class WebSocketManager:
@@ -34,15 +42,22 @@ class WebSocketManager:
     async def broadcast(self, message: dict):
         if not self._connections:
             return
-        data = json.dumps(message)
+        try:
+            data = json.dumps(message, cls=CustomEncoder)
+        except Exception as e:
+            log.warning("ws_serialize_error", error=str(e))
+            return
+
         dead: set[WebSocket] = set()
         async with self._lock:
-            snapshot = set(self._connections)
+            snapshot = list(self._connections)
+
         for ws in snapshot:
             try:
                 await ws.send_text(data)
             except Exception:
                 dead.add(ws)
+
         if dead:
             async with self._lock:
                 self._connections -= dead

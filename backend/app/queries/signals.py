@@ -3,6 +3,14 @@ from uuid import UUID, uuid4
 import asyncpg
 
 
+def _to_text(v) -> str | None:
+    if v is None:
+        return None
+    if isinstance(v, list):
+        return "; ".join(str(x) for x in v)
+    return str(v)
+
+
 async def insert_signals_batch(
     conn: asyncpg.Connection, scan_id: UUID, signals: list[dict]
 ) -> int:
@@ -48,7 +56,7 @@ async def insert_signals_batch(
             signal.get("fib_confluence"),
             signal.get("phase"),
             json.dumps(signal.get("trailing_plan")) if signal.get("trailing_plan") else None,
-            signal.get("reasoning") or cls.get("reasoning"),
+            _to_text(signal.get("reasoning") or cls.get("reasoning")),
         ))
 
     await conn.copy_records_to_table(
@@ -109,16 +117,36 @@ async def get_latest_signals(
         idx += 1
 
     where_clause = " AND ".join(where)
-    base = f"""
+    enriched_base = f"""
+        FROM signals s
+        JOIN scans sc ON s.scan_id = sc.id
+        LEFT JOIN stock_master sm ON s.symbol = sm.symbol AND sm.exchange = 'NSE'
+        WHERE {where_clause}
+    """
+    plain_base = f"""
         FROM signals s
         JOIN scans sc ON s.scan_id = sc.id
         WHERE {where_clause}
     """
-    total = await conn.fetchval(f"SELECT COUNT(*) {base}", *params)
-    rows = await conn.fetch(
-        f"SELECT s.* {base} ORDER BY s.rank_score DESC LIMIT ${idx} OFFSET ${idx+1}",
-        *params, limit, offset,
-    )
+
+    try:
+        total = await conn.fetchval(f"SELECT COUNT(*) {enriched_base}", *params)
+        rows = await conn.fetch(
+            f"""SELECT s.*,
+                       sm.company_name,
+                       sm.sector
+                {enriched_base}
+                ORDER BY s.rank_score DESC
+                LIMIT ${idx} OFFSET ${idx+1}""",
+            *params, limit, offset,
+        )
+    except asyncpg.UndefinedTableError:
+        # stock_master migration not yet applied — fall back to symbol-only query
+        total = await conn.fetchval(f"SELECT COUNT(*) {plain_base}", *params)
+        rows = await conn.fetch(
+            f"SELECT s.* {plain_base} ORDER BY s.rank_score DESC LIMIT ${idx} OFFSET ${idx+1}",
+            *params, limit, offset,
+        )
     return rows, total
 
 

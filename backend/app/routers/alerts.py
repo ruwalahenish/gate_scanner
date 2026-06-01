@@ -65,6 +65,8 @@ def _serialize(row) -> dict:
     for k, v in d.items():
         if hasattr(v, "isoformat"):
             d[k] = v.isoformat()
-        elif type(v).__name__ in ("UUID",):
+        elif type(v).__name__ == "UUID":
             d[k] = str(v)
+        elif type(v).__name__ == "Decimal":
+            d[k] = float(v)
     return d

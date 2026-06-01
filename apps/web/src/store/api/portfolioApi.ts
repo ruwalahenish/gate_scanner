@@ -46,6 +46,14 @@ export const portfolioApi = createApi({
       }),
       invalidatesTags: ["Position"],
     }),
+    updateCapital: builder.mutation<{ updated: boolean; amount: number }, { amount: number }>({
+      query: (body) => ({
+        url: "/capital",
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: ["Summary"],
+    }),
   }),
 });
 
@@ -56,4 +64,5 @@ export const {
   useBuyMutation,
   useSellMutation,
   useUpdateStopLossMutation,
+  useUpdateCapitalMutation,
 } = portfolioApi;

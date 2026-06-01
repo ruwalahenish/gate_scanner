@@ -14,7 +14,7 @@ from app.redis_client import create_redis, close_redis
 from app.exceptions import GATEBaseError
 from app.services.ws_manager import manager
 from app.services.alert_engine import alert_engine
-from app.routers import signals, portfolio, alerts, scans, universe, watchlist, market, backtests
+from app.routers import signals, portfolio, alerts, scans, universe, watchlist, market, backtests, stock_master
 
 # Structured logging setup
 structlog.configure(
@@ -66,6 +66,13 @@ async def shutdown():
     await alert_engine.stop()
     await close_pool()
     await close_redis()
+    # Cleanly release thread pools to avoid resource leaks during restarts
+    from app.services.scan_service import _executor as scan_executor
+    from app.services.price_service import _executor as price_executor
+    from app.services.stock_service import _executor as stock_executor
+    scan_executor.shutdown(wait=False)
+    price_executor.shutdown(wait=False)
+    stock_executor.shutdown(wait=False)
     log.info("shutdown_complete")
 
 
@@ -102,4 +109,5 @@ app.include_router(alerts.router,    prefix="/api/alerts")
 app.include_router(universe.router,  prefix="/api/universe")
 app.include_router(watchlist.router, prefix="/api/watchlist")
 app.include_router(market.router,    prefix="/api/market")
-app.include_router(backtests.router, prefix="/api/backtests")
+app.include_router(backtests.router,     prefix="/api/backtests")
+app.include_router(stock_master.router,  prefix="/api/stocks")

@@ -39,6 +39,9 @@ export interface Signal {
   } | null;
   reasoning: string | null;
   created_at: string;
+  // Enriched from stock_master JOIN (present when stock_master is populated)
+  company_name?: string | null;
+  sector?: string | null;
 }
 
 export interface SignalListResponse {

@@ -1,5 +1,6 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import type { Signal, SignalListResponse, SignalFilters } from "@/types/signal";
+import type { ScanResult } from "@/types/scan";
 import { API_URL } from "@/lib/constants";
 
 export const signalsApi = createApi({
@@ -22,7 +23,7 @@ export const signalsApi = createApi({
     }),
     getSymbolAnalysis: builder.query<Record<string, unknown>, string>({
       query: (symbol) => `/signals/${symbol}/analysis`,
-      keepUnusedDataFor: 300, // 5-minute cache — analysis is expensive
+      keepUnusedDataFor: 300,
     }),
     getChartData: builder.query<
       { symbol: string; timeframe: string; bars: object[] },
@@ -34,7 +35,7 @@ export const signalsApi = createApi({
       }),
       keepUnusedDataFor: 300,
     }),
-    getScans: builder.query<object[], void>({
+    getScans: builder.query<ScanResult[], void>({
       query: () => "/scans",
       providesTags: ["Scan"],
     }),
@@ -46,7 +47,7 @@ export const signalsApi = createApi({
       }),
       invalidatesTags: ["Signal", "Scan"],
     }),
-    getScanStatus: builder.query<object, string>({
+    getScanStatus: builder.query<{ id: string; status: string; signals_found?: number }, string>({
       query: (scanId) => `/scans/${scanId}`,
     }),
   }),

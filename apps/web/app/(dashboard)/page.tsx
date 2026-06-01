@@ -7,6 +7,8 @@ import {
   TrendingUp, TrendingDown, AccountBalance, FlashOn,
 } from "@mui/icons-material";
 import Link from "next/link";
+import { useMemo } from "react";
+import { useSelector } from "react-redux";
 import { useGetSignalsQuery, useGetScansQuery } from "@/store/api/signalsApi";
 import { useGetPortfolioSummaryQuery } from "@/store/api/portfolioApi";
 import { useGetAlertsQuery } from "@/store/api/alertsApi";
@@ -15,7 +17,9 @@ import { CategoryChip } from "@/components/ui/CategoryChip";
 import { GATEBar } from "@/components/ui/GATEBar";
 import { formatPrice, formatIST, isMarketHours } from "@/lib/formatters";
 import { CATEGORY_ORDER } from "@/lib/constants";
+import type { RootState } from "@/store";
 import type { SignalCategory } from "@/types/signal";
+import type { StreamingSignal } from "@/types/scan";
 
 export default function DashboardPage() {
   const { data: signals, isLoading: signalsLoading } = useGetSignalsQuery({ limit: 10, min_rank: 50 });
@@ -25,15 +29,32 @@ export default function DashboardPage() {
   const { data: scans } = useGetScansQuery();
   const { data: alerts } = useGetAlertsQuery({ status: "triggered" });
 
-  const latestScan = (scans as { triggered_at?: string; status?: string; signals_found?: number }[] | undefined)?.[0];
-  const topSignals = signals?.items?.slice(0, 8) ?? [];
+  const scanProgress     = useSelector((s: RootState) => s.ws.scanProgress);
+  const streamingSignals = useSelector((s: RootState) => s.ws.streamingSignals);
+  const isScanning       = scanProgress !== null;
 
-  // Count by category
-  const allSignals = signals?.items ?? [];
-  const categoryCounts = CATEGORY_ORDER.reduce((acc, cat) => {
-    acc[cat] = allSignals.filter((s) => s.category === cat).length;
-    return acc;
-  }, {} as Record<string, number>);
+  const latestScan = scans?.[0];
+
+  // While scanning: show streaming batch results; otherwise show authoritative DB results
+  const topSignals = useMemo(() => {
+    if (isScanning && streamingSignals.length > 0) {
+      return [...streamingSignals]
+        .sort((a, b) => (b.rank_score ?? 0) - (a.rank_score ?? 0))
+        .slice(0, 8);
+    }
+    return signals?.items?.slice(0, 8) ?? [];
+  }, [isScanning, streamingSignals, signals]);
+
+  const allSignals = isScanning ? streamingSignals : (signals?.items ?? []);
+
+  const categoryCounts = useMemo(
+    () =>
+      CATEGORY_ORDER.reduce((acc, cat) => {
+        acc[cat] = allSignals.filter((s) => s.category === cat).length;
+        return acc;
+      }, {} as Record<string, number>),
+    [allSignals]
+  );
 
   return (
     <Box>
@@ -68,7 +89,7 @@ export default function DashboardPage() {
             <StatCard
               label={cat}
               value={categoryCounts[cat] ?? 0}
-              subtitle="signals"
+              subtitle={isScanning ? "live" : "signals"}
               icon={<FlashOn />}
               color={cat === "INVESTMENT" ? "#22c55e" : cat === "SWING" ? "#6366f1" : undefined}
             />
@@ -77,7 +98,14 @@ export default function DashboardPage() {
       </Grid>
 
       {/* Scan info */}
-      {latestScan && (
+      {isScanning && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Scan in progress — {streamingSignals.length} signals found so far
+          {scanProgress && scanProgress.total > 0 &&
+            ` (${scanProgress.done}/${scanProgress.total} symbols processed)`}
+        </Alert>
+      )}
+      {!isScanning && latestScan && (
         <Alert
           severity={latestScan.status === "done" ? "info" : "warning"}
           sx={{ mb: 2 }}
@@ -92,7 +120,11 @@ export default function DashboardPage() {
         <Grid item xs={12} lg={7}>
           <Card>
             <CardContent>
-              <Typography variant="subtitle2" gutterBottom>Top Signals (by Rank)</Typography>
+              <Typography variant="subtitle2" gutterBottom>
+                {isScanning
+                  ? `Live Results (${streamingSignals.length} so far)`
+                  : "Top Signals (by Rank)"}
+              </Typography>
               <Table size="small">
                 <TableHead>
                   <TableRow>
@@ -102,28 +134,41 @@ export default function DashboardPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {topSignals.map((s) => (
-                    <TableRow key={s.id} hover>
-                      <TableCell>
-                        <Link
-                          href={`/signals/${s.symbol}`}
-                          style={{ color: "#818cf8", fontWeight: 700, textDecoration: "none" }}
-                        >
-                          {s.symbol}
-                        </Link>
-                      </TableCell>
-                      <TableCell><CategoryChip category={s.category as SignalCategory} /></TableCell>
-                      <TableCell>{formatPrice(s.entry)}</TableCell>
-                      <TableCell sx={{ color: "success.light" }}>{formatPrice(s.t1)}</TableCell>
-                      <TableCell sx={{ minWidth: 100 }}><GATEBar score={s.gate_strength} /></TableCell>
-                      <TableCell>{s.rr_t1?.toFixed(1) ?? "—"}x</TableCell>
-                    </TableRow>
-                  ))}
-                  {!signalsLoading && topSignals.length === 0 && (
+                  {topSignals.map((s, idx) => {
+                    const id = (s as { id?: string }).id;
+                    const key = id ?? `${s.symbol}-${idx}`;
+                    return (
+                      <TableRow key={key} hover>
+                        <TableCell>
+                          <Link
+                            href={`/stocks/${s.symbol}`}
+                            style={{ color: "#818cf8", fontWeight: 700, textDecoration: "none" }}
+                          >
+                            {s.symbol}
+                          </Link>
+                        </TableCell>
+                        <TableCell><CategoryChip category={s.category as SignalCategory} /></TableCell>
+                        <TableCell>{formatPrice(s.entry)}</TableCell>
+                        <TableCell sx={{ color: "success.light" }}>{formatPrice(s.t1)}</TableCell>
+                        <TableCell sx={{ minWidth: 100 }}><GATEBar score={s.gate_strength} /></TableCell>
+                        <TableCell>{s.rr_t1?.toFixed(1) ?? "—"}x</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {!signalsLoading && !isScanning && topSignals.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
                         <Typography color="text.secondary" variant="body2">
                           No signals yet — click Run Scan to generate signals
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {isScanning && topSignals.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
+                        <Typography color="text.secondary" variant="body2">
+                          Waiting for first batch…
                         </Typography>
                       </TableCell>
                     </TableRow>

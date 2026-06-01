@@ -25,7 +25,6 @@ services:
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./.gate_cache:/app/.gate_cache   # reuse existing Parquet cache
-      - ./gate_scanner:/app/gate_scanner # mount existing engines
     depends_on:
       - redis
 
@@ -42,7 +41,6 @@ services:
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./.gate_cache:/app/.gate_cache
-      - ./gate_scanner:/app/gate_scanner
     depends_on:
       - redis
 

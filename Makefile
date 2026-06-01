@@ -3,10 +3,11 @@
 # Usage: make <target>
 # ─────────────────────────────────────────────────────────
 
-.PHONY: help up down logs db-migrate backend frontend install clean
+.PHONY: help dev up down logs db-migrate backend frontend install clean
 
 help:
 	@echo ""
+	@echo "  make dev         ★ Start everything in one terminal (recommended)"
 	@echo "  make up          Start all services (Docker)"
 	@echo "  make down        Stop all services"
 	@echo "  make logs        Tail logs for api + worker"
@@ -17,6 +18,10 @@ help:
 	@echo "  make install     Install all dependencies"
 	@echo "  make clean       Remove __pycache__ and .next"
 	@echo ""
+
+# ── All-in-one dev launcher ──────────────────────────────
+dev:
+	python dev.py
 
 # ── Docker ───────────────────────────────────────────────
 up:
@@ -37,7 +42,7 @@ backend:
 	cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 worker:
-	cd backend && celery -A app.tasks.celery_app worker --loglevel=info
+	cd backend && celery -A app.tasks.celery_app worker --loglevel=info --pool=solo
 
 beat:
 	cd backend && celery -A app.tasks.celery_app beat --loglevel=info
@@ -48,6 +53,13 @@ frontend:
 install:
 	pip install -r backend/requirements.txt
 	cd apps/web && npm install
+
+# ── Scanner (runs through backend service layer) ──────────────────────
+scan:
+	cd backend && python -c "from app.core.scanner.pipeline import run_scan; run_scan()"
+
+scan-daily:
+	cd backend && python -c "from app.core.scanner.pipeline import run_daily_scan; run_daily_scan()"
 
 # ── Cleanup ──────────────────────────────────────────────
 clean:

@@ -99,15 +99,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tf_analyses ON timeframe_analyses(scan_id,
 -- ============================================================
 CREATE TABLE IF NOT EXISTS portfolio_config (
     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    initial_capital NUMERIC(14,2) NOT NULL DEFAULT 1000000,
-    current_capital NUMERIC(14,2) NOT NULL DEFAULT 1000000,
+    initial_capital NUMERIC(14,2) NOT NULL DEFAULT 5000,
+    current_capital NUMERIC(14,2) NOT NULL DEFAULT 5000,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Seed the single config row
 INSERT INTO portfolio_config(id, initial_capital, current_capital)
-VALUES(gen_random_uuid(), 1000000, 1000000)
+VALUES(gen_random_uuid(), 5000, 5000)
 ON CONFLICT DO NOTHING;
 
 -- ============================================================
@@ -274,3 +274,6 @@ CREATE TABLE IF NOT EXISTS scan_metrics (
     cache_hits      INT,
     cache_misses    INT
 );
+
+-- Add error_message to backtests (safe to re-run)
+ALTER TABLE backtests ADD COLUMN IF NOT EXISTS error_message TEXT;

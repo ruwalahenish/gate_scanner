@@ -13,6 +13,14 @@ async def update_capital(conn: asyncpg.Connection, new_capital: float) -> None:
     )
 
 
+async def reset_capital(conn: asyncpg.Connection, new_capital: float) -> None:
+    """Set both initial_capital and current_capital (fresh start)."""
+    await conn.execute(
+        "UPDATE portfolio_config SET initial_capital=$1, current_capital=$1, updated_at=NOW()",
+        new_capital,
+    )
+
+
 async def create_position(
     conn: asyncpg.Connection,
     symbol: str,
@@ -104,6 +112,21 @@ async def get_trade_history(
 
 async def get_portfolio_summary(conn: asyncpg.Connection) -> dict:
     config = await get_portfolio_config(conn)
+    if config is None:
+        # Return a safe zero-state when portfolio has never been configured
+        return {
+            "initial_capital": 0.0,
+            "current_capital": 0.0,
+            "invested_value": 0.0,
+            "unrealized_pnl": 0.0,
+            "realized_pnl": 0.0,
+            "total_pnl": 0.0,
+            "total_pnl_pct": 0.0,
+            "open_positions": 0,
+            "total_trades": 0,
+            "winning_trades": 0,
+            "win_rate": 0.0,
+        }
     trades = await conn.fetchrow(
         """SELECT
              COUNT(*) FILTER (WHERE pnl_abs IS NOT NULL) AS total_trades,

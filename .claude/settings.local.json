@@ -13,10 +13,46 @@
       "Read(//mnt/**)",
       "Bash(ls /mnt/)",
       "PowerShell(New-Item -ItemType File -Path \"d:\\\\gate-scanner\\\\README.md\" -Force)",
-      "PowerShell(Test-NetConnection -ComputerName localhost -Port 6379 -InformationLevel Quiet 2>$null)"
+      "PowerShell(Test-NetConnection -ComputerName localhost -Port 6379 -InformationLevel Quiet 2>$null)",
+      "Bash(Get-ChildItem -Path \"d:\\\\gate_scanner\" -Directory)",
+      "Bash(Select-Object Name)",
+      "PowerShell(head -20)",
+      "Bash(xargs grep -l \"symbols_done\\\\|scan\\\\.progress\")",
+      "Bash(docker compose *)",
+      "Bash(redis-cli DEL scan:running)",
+      "Bash(Get-ChildItem -Path \"d:\\\\gate_scanner\" -Force)",
+      "Bash(Select-Object Name, FullName)",
+      "Bash(grep -E '\\\\.\\(sh|bat|ps1\\)$')",
+      "Bash(python -c \"from app.core import config; print\\('config OK:', list\\(config.GATE_WEIGHTS.keys\\(\\)\\)\\)\")",
+      "Bash(python -c \"from app.core.analysis.indicators import add_emas; print\\('indicators OK'\\)\")",
+      "Bash(python -c \"from app.core.analysis.ema_engine import analyze; print\\('ema_engine OK'\\)\")",
+      "Bash(python -c \"from app.core.analysis.contraction_engine import gate_score; print\\('contraction_engine OK'\\)\")",
+      "Bash(python -c \"from app.core.analysis.structure_engine import analyze; print\\('structure_engine OK'\\)\")",
+      "Bash(python -c \"from app.core.analysis.signal_engine import generate_signal; print\\('signal_engine OK'\\)\")",
+      "Bash(python -c \"from app.core.ranking.ranking_engine import rank; print\\('ranking_engine OK'\\)\")",
+      "Bash(python -c \"from app.core.ranking.classifier import classify; print\\('classifier OK'\\)\")",
+      "Bash(python -c \"from app.core.scanner.data_fetcher import get_multi_timeframe; print\\('data_fetcher OK'\\)\")",
+      "Bash(python -c \"from app.core.scanner.universe import get_full_universe, UniverseFilter; print\\('universe OK'\\)\")",
+      "Bash(python -c \"from app.core.backtester import BacktestEngine, Trade, Portfolio; print\\('backtester OK'\\)\")",
+      "Bash(python -c \"from app.agents import BaseAgent, MarketScannerAgent, MTFAnalysisAgent, RiskManagementAgent, SignalRankingAgent, ReportGenerationAgent; print\\('agents OK'\\)\")",
+      "Bash(python -c \"from app.core.scanner.pipeline import run_scan, run_daily_scan; print\\('pipeline OK'\\)\")",
+      "Bash(python -c \"from app.services.scan_service import run_scan_async, analyze_symbol_async, fetch_ohlcv_async; print\\('scan_service OK'\\)\")",
+      "Bash(python -c \"from app.tasks.scanner_tasks import run_scan_task; print\\('scanner_tasks OK'\\)\")",
+      "Bash(python -c \"from app.tasks.backtest_tasks import run_backtest_task; print\\('backtest_tasks OK'\\)\")",
+      "Bash(python -c \"from app.routers.universe import router; print\\('universe router OK'\\)\")",
+      "Bash(python -c \"import asyncpg\")",
+      "Bash(python -c \"import app.main\")",
+      "Bash(python -c \"import app.main; print\\('OK'\\)\")",
+      "Bash(python -c \"from app.routers.portfolio import router; print\\('portfolio router OK'\\)\")",
+      "Bash(python -c \"import json,sys; p=json.load\\(sys.stdin\\); deps={**p.get\\('dependencies',{}\\),**p.get\\('devDependencies',{}\\)}; [print\\(k\\) for k in deps if 'mui' in k or 'recharts' in k]\")",
+      "Bash(mkdir \"d:\\\\gate_scanner\\\\apps\\\\web\\\\app\\\\\\(dashboard\\)\\\\stocks\\\\[symbol]\")",
+      "Bash(Remove-Item -Recurse -Force \"d:\\\\gate_scanner\\\\apps\\\\web\\\\app\\\\\\(dashboard\\)\\\\signals\")",
+      "Bash(Remove-Item -Force \"d:\\\\gate_scanner\\\\apps\\\\web\\\\src\\\\components\\\\domain\\\\SignalFilterBar.tsx\")",
+      "Bash(python -c \"import sys,json; p=json.load\\(sys.stdin\\); print\\(p.get\\('dependencies',{}\\).get\\('lightweight-charts','not found'\\)\\)\")"
     ],
     "additionalDirectories": [
-      "\\mnt\\d\\gate-scanner"
+      "\\mnt\\d\\gate-scanner",
+      "d:\\gate_scanner\\apps\\web\\app\\(dashboard)\\stocks"
     ]
   }
 }

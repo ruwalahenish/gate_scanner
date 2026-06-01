@@ -1,9 +1,10 @@
+import json
 from fastapi import APIRouter, Depends, Query, HTTPException
 import asyncpg
 
 from app.dependencies import db_conn
 from app.queries.signals import get_latest_signals, get_signal_history
-from app.services.engine_adapter import analyze_symbol_async, fetch_ohlcv_async
+from app.services.scan_service import analyze_symbol_async, fetch_ohlcv_async
 
 router = APIRouter(tags=["signals"])
 
@@ -71,11 +72,21 @@ async def chart_data(
         raise HTTPException(status_code=503, detail=f"Data fetch failed: {str(e)}")
 
 
+_JSONB_COLS = {"trailing_plan"}
+
+
 def _serialize(row) -> dict:
     d = dict(row)
-    for k, v in d.items():
+    for k, v in list(d.items()):
         if hasattr(v, "isoformat"):
             d[k] = v.isoformat()
-        elif hasattr(v, "__str__") and type(v).__name__ in ("UUID", "Decimal"):
+        elif type(v).__name__ == "UUID":
             d[k] = str(v)
+        elif type(v).__name__ == "Decimal":
+            d[k] = float(v)
+        elif k in _JSONB_COLS and isinstance(v, str):
+            try:
+                d[k] = json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                pass
     return d
