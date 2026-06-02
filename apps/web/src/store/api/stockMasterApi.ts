@@ -8,6 +8,7 @@ import type {
   StockListResponse,
   StockSearchResult,
   StockSyncStats,
+  SyncTaskStatus,
 } from "@/types/stock";
 
 export const stockMasterApi = createApi({
@@ -34,6 +35,9 @@ export const stockMasterApi = createApi({
     triggerSync: builder.mutation<{ task_id: string; status: string }, { phases: string[] }>({
       query: (body) => ({ url: "/sync/trigger", method: "POST", body }),
       invalidatesTags: ["StockSync"],
+    }),
+    getSyncStatus: builder.query<SyncTaskStatus, void>({
+      query: () => "/sync/status",
     }),
     // Chart data with EMA overlays
     getStockChartData: builder.query<{ symbol: string; timeframe: string; bars: Bar[] }, { symbol: string; timeframe: string }>({
@@ -64,6 +68,7 @@ export const {
   useListStocksQuery,
   useGetStockStatsQuery,
   useTriggerSyncMutation,
+  useGetSyncStatusQuery,
   useGetStockChartDataQuery,
   useGetStockAnalysisQuery,
   useGetStockBacktestTradesQuery,

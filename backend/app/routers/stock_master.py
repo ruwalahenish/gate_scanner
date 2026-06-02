@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from typing import Annotated, Optional
 
 import asyncpg
@@ -65,7 +67,10 @@ async def stats_endpoint(conn: asyncpg.Connection = Depends(db_conn)):
 # ---------------------------------------------------------------------------
 
 @router.post("/sync/trigger", response_model=SyncTriggerResponse)
-async def trigger_sync(body: SyncTriggerRequest):
+async def trigger_sync(
+    body: SyncTriggerRequest,
+    redis: aioredis.Redis = Depends(redis_client),
+):
     """Dispatch a Celery sync task for the requested phases."""
     valid_phases = {"equity", "index_flags", "fundamentals"}
     bad = [p for p in body.phases if p not in valid_phases]
@@ -75,9 +80,54 @@ async def trigger_sync(body: SyncTriggerRequest):
     try:
         from app.tasks.stock_tasks import sync_stock_master
         task = sync_stock_master.delay(body.phases)
+
+        await redis.set("stock_sync:current", json.dumps({
+            "task_id":    str(task.id),
+            "phases":     body.phases,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        }), ex=7200)
+        await redis.delete("stock_sync:progress")
+        await redis.delete("stock_sync:phase")
+
         return SyncTriggerResponse(task_id=str(task.id), phases=body.phases, status="queued")
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Celery unavailable: {e}")
+
+
+@router.get("/sync/status")
+async def get_sync_status(redis: aioredis.Redis = Depends(redis_client)):
+    """Return current sync task state + live fundamentals progress."""
+    raw = await redis.get("stock_sync:current")
+    if not raw:
+        return {"is_running": False, "state": "idle"}
+
+    info = json.loads(raw)
+    task_id = info["task_id"]
+
+    try:
+        from app.tasks.celery_app import celery_app
+        cel_result = celery_app.AsyncResult(task_id)
+        state = cel_result.state          # PENDING / STARTED / SUCCESS / FAILURE
+        error = str(cel_result.result) if state == "FAILURE" else None
+    except Exception:
+        state = "UNKNOWN"
+        error = None
+
+    is_running = state in ("PENDING", "STARTED", "RETRY")
+
+    progress_raw   = await redis.get("stock_sync:progress")
+    current_phase  = await redis.get("stock_sync:phase")
+
+    return {
+        "is_running":    is_running,
+        "task_id":       task_id,
+        "phases":        info["phases"],
+        "started_at":    info["started_at"],
+        "state":         state,
+        "current_phase": current_phase,
+        "progress":      json.loads(progress_raw) if progress_raw else None,
+        "error":         error,
+    }
 
 
 # ---------------------------------------------------------------------------

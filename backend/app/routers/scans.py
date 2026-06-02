@@ -9,7 +9,7 @@ import asyncpg
 from app.dependencies import db_conn, redis_client
 from app.limiter import limiter
 from app.models.scan import TriggerScanRequest, TriggerScanResponse, ScanStatus
-from app.queries.scans import create_scan, get_scan, list_scans, has_running_scan
+from app.queries.scans import create_scan, get_scan, list_scans, has_running_scan, update_scan_status
 from app.queries.signals import get_latest_signals, get_signal_history
 from app.services.scan_service import analyze_symbol_async, fetch_ohlcv_async
 from app.tasks.scanner_tasks import run_scan_task
@@ -246,6 +246,53 @@ async def update_scan_schedule(
     )
     row = await conn.fetchrow("SELECT * FROM scan_schedule WHERE id=1")
     return _serialize_schedule(row)
+
+
+@router.post("/{scan_id}/stop")
+async def stop_scan(
+    scan_id: UUID,
+    conn: asyncpg.Connection = Depends(db_conn),
+    redis: aioredis.Redis = Depends(redis_client),
+):
+    """Force-stop a running or stuck scan."""
+    from datetime import datetime, timezone
+
+    row = await get_scan(conn, scan_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    if row["status"] not in ("pending", "running"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Scan is already {row['status']} — nothing to stop",
+        )
+
+    # Mark as failed in DB
+    await update_scan_status(conn, scan_id, "failed", error_message="Stopped by user")
+
+    # Release distributed lock so new scans can start immediately
+    try:
+        await redis.delete(SCAN_LOCK_KEY)
+    except Exception:
+        pass
+
+    # Broadcast scan.failed → WebSocket manager fans out to all clients
+    try:
+        await redis.publish("scan:progress", json.dumps({
+            "type": "scan.failed",
+            "payload": {"scan_id": str(scan_id), "error": "Stopped by user"},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }))
+    except Exception:
+        pass
+
+    # Bust dashboard cache
+    try:
+        await redis.delete("dashboard:stats")
+    except Exception:
+        pass
+
+    return {"stopped": True, "scan_id": str(scan_id)}
 
 
 @router.get("/{scan_id}", response_model=ScanStatus)

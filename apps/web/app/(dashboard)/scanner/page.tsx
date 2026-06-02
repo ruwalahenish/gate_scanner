@@ -1,12 +1,15 @@
 "use client";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
-  Box, Card, CardContent, Typography, Chip, Tab, Tabs,
+  Box, Card, CardContent, Grid, Typography, Chip, Tab, Tabs,
   LinearProgress, CircularProgress, Select, MenuItem,
   FormControl, InputLabel, Stack, Pagination,
-  Button, Tooltip,
+  Button, Divider,
 } from "@mui/material";
-import { PlayArrow, Schedule, FilterList } from "@mui/icons-material";
+import {
+  PlayArrow, Schedule, CheckCircleOutline,
+  TrendingUp, Visibility, DoNotDisturbAlt,
+} from "@mui/icons-material";
 import { useSelector, useDispatch } from "react-redux";
 import { SignalTable, CATEGORY_DISPLAY } from "@/components/domain/SignalTable";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -15,14 +18,16 @@ import {
   useGetScanResultsQuery,
   useListScansQuery,
   useTriggerScanMutation,
+  useStopScanMutation,
 } from "@/store/api/scannerApi";
 import { scannerApi } from "@/store/api/scannerApi";
 import { stockMasterApi } from "@/store/api/stockMasterApi";
-import { scanStarted, scanCompleted, scanFailed, clearStreamingSignals } from "@/store/slices/wsSlice";
+import { scanStarted, scanFailed, clearStreamingSignals } from "@/store/slices/wsSlice";
 import { formatIST } from "@/lib/formatters";
 import type { RootState, AppDispatch } from "@/store";
 import type { Signal, SignalCategory, DisplayStatus } from "@/types/signal";
 import type { StreamingSignal } from "@/types/scan";
+import type { CompletionSummary } from "@/store/slices/wsSlice";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -113,51 +118,231 @@ function countByStatus(signals: Signal[]): Record<DisplayStatus, number> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Scan progress banner
+// Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ScanProgressBanner({
+function formatDuration(sec: number): string {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+function useElapsedSeconds(startedAt: number | null): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!startedAt) { setElapsed(0); return; }
+    const tick = () => setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  return elapsed;
+}
+
+const BUY_CATS = new Set(["INVESTMENT", "SWING", "POSITIONAL"]);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rich scan detail panel (replaces thin banner)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ScanDetailPanel({
   progress,
-  streamingCount,
+  streamingSignals,
+  scanStartedAt,
+  onStop,
+  isStopping,
 }: {
-  progress: { done: number; total: number } | null;
-  streamingCount: number;
+  progress: { done: number; total: number };
+  streamingSignals: StreamingSignal[];
+  scanStartedAt: number | null;
+  onStop: () => void;
+  isStopping: boolean;
 }) {
-  if (!progress) return null;
-  const hasReal = progress.total > 0;
-  const pct = hasReal ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
+  const elapsed  = useElapsedSeconds(scanStartedAt);
+  const hasReal  = progress.total > 0;
+  const pct      = hasReal ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
+  const rate     = elapsed > 2 ? progress.done / elapsed : 0;
+  const etaSec   = rate > 0 ? Math.round((progress.total - progress.done) / rate) : null;
+
+  const buyCount      = streamingSignals.filter(s => BUY_CATS.has(s.category)).length;
+  const watchCount    = streamingSignals.filter(s => s.category === "WATCH").length;
+  const noActCount    = streamingSignals.filter(s => s.category === "IGNORE").length;
+
+  // Last 10 signals in reverse order (newest first)
+  const recentFeed = useMemo(
+    () => [...streamingSignals].slice(-10).reverse(),
+    [streamingSignals],
+  );
 
   return (
-    <Card sx={{ mb: 2, bgcolor: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.2)" }}>
-      <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.8}>
+    <Card sx={{ mb: 2, bgcolor: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.25)" }}>
+      <CardContent sx={{ py: 2, "&:last-child": { pb: 2 } }}>
+
+        {/* ── Header ────────────────────────────────────────────────────── */}
+        <Box display="flex" alignItems="center" justifyContent="space-between" mb={1.5}>
           <Box display="flex" alignItems="center" gap={1}>
-            <CircularProgress size={14} thickness={5} />
-            <Typography variant="body2" fontWeight={600}>
-              Scanning in progress…
-            </Typography>
+            <CircularProgress size={16} thickness={5} sx={{ color: "#6366f1" }} />
+            <Typography variant="subtitle2" fontWeight={700}>GATE Scan Running</Typography>
           </Box>
-          <Box display="flex" alignItems="center" gap={2}>
-            {hasReal && (
-              <Typography variant="caption" color="text.secondary">
-                {progress.done} / {progress.total} stocks ({pct}%)
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Typography variant="caption" color="text.secondary">
+              ⏱ {formatDuration(elapsed)}
+            </Typography>
+            {etaSec !== null && etaSec > 5 && (
+              <Typography variant="caption" color="text.disabled">
+                ETA ~{formatDuration(etaSec)}
               </Typography>
             )}
-            {streamingCount > 0 && (
-              <Chip
-                label={`${streamingCount} signals found`}
-                size="small"
-                color="success"
-                sx={{ fontSize: "0.68rem", height: 20 }}
-              />
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              disabled={isStopping}
+              onClick={onStop}
+              startIcon={isStopping ? <CircularProgress size={12} color="inherit" /> : undefined}
+              sx={{ fontSize: "0.72rem", py: 0.3, minWidth: 88 }}
+            >
+              {isStopping ? "Stopping…" : "Stop Scan"}
+            </Button>
+          </Stack>
+        </Box>
+
+        {/* ── Progress bar ──────────────────────────────────────────────── */}
+        <Box mb={1.5}>
+          <Box display="flex" justifyContent="space-between" alignItems="baseline" mb={0.5}>
+            <Typography variant="caption" color="text.secondary">
+              {hasReal
+                ? `${progress.done.toLocaleString()} / ${progress.total.toLocaleString()} symbols`
+                : "Initialising…"}
+            </Typography>
+            {hasReal && (
+              <Typography variant="caption" fontWeight={700} color="primary.light">
+                {pct}%
+              </Typography>
             )}
           </Box>
+          <LinearProgress
+            variant={hasReal ? "determinate" : "indeterminate"}
+            value={hasReal ? pct : undefined}
+            sx={{ height: 6, borderRadius: 3 }}
+          />
         </Box>
-        <LinearProgress
-          variant={hasReal ? "determinate" : "indeterminate"}
-          value={hasReal ? pct : undefined}
-          sx={{ height: 5, borderRadius: 2 }}
-        />
+
+        {/* ── Signal counters ───────────────────────────────────────────── */}
+        <Grid container spacing={1.5} mb={recentFeed.length > 0 ? 1.5 : 0}>
+          {[
+            { label: "BUY Signals",   count: buyCount,   color: "#22c55e", Icon: TrendingUp       },
+            { label: "Watch",          count: watchCount,  color: "#f59e0b", Icon: Visibility       },
+            { label: "No Action",      count: noActCount,  color: "#64748b", Icon: DoNotDisturbAlt  },
+          ].map(({ label, count, color, Icon }) => (
+            <Grid item xs={4} key={label}>
+              <Box
+                display="flex" alignItems="center" gap={1}
+                sx={{ py: 1, px: 1.5, bgcolor: `${color}0d`, borderRadius: 1.5, border: `1px solid ${color}25` }}
+              >
+                <Icon sx={{ fontSize: 18, color, flexShrink: 0 }} />
+                <Box>
+                  <Typography variant="h6" fontWeight={700} color={color} lineHeight={1.1}>
+                    {count}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem" }}>
+                    {label}
+                  </Typography>
+                </Box>
+              </Box>
+            </Grid>
+          ))}
+        </Grid>
+
+        {/* ── Recent signals feed ───────────────────────────────────────── */}
+        {recentFeed.length > 0 && (
+          <>
+            <Divider sx={{ borderColor: "rgba(255,255,255,0.06)", mb: 1 }} />
+            <Typography variant="caption" color="text.disabled" display="block" mb={0.6}>
+              Recent signals
+            </Typography>
+            <Stack spacing={0.35}>
+              {recentFeed.map((sig, i) => {
+                const isBuy = BUY_CATS.has(sig.category);
+                const col   = isBuy ? "#22c55e" : sig.category === "WATCH" ? "#f59e0b" : "#64748b";
+                const meta  = CATEGORY_DISPLAY[sig.category as SignalCategory];
+                return (
+                  <Box
+                    key={`${sig.symbol}-${i}`}
+                    display="flex" alignItems="center" gap={1.5}
+                    sx={{ py: 0.4, px: 0.8, borderRadius: 1, bgcolor: "rgba(255,255,255,0.02)",
+                      "&:first-of-type": { bgcolor: "rgba(99,102,241,0.08)" } }}
+                  >
+                    <Typography variant="caption" fontWeight={700} sx={{ minWidth: 80 }}>
+                      {sig.symbol}
+                    </Typography>
+                    <Chip
+                      label={meta?.label ?? sig.category}
+                      size="small"
+                      sx={{ height: 17, fontSize: "0.6rem", fontWeight: 600,
+                        bgcolor: `${col}18`, color: col, border: `1px solid ${col}40` }}
+                    />
+                    {sig.gate_strength != null && (
+                      <Typography variant="caption" color="text.secondary">
+                        GATE {sig.gate_strength.toFixed(0)}
+                      </Typography>
+                    )}
+                    {sig.entry != null && (
+                      <Typography variant="caption" color="text.disabled" ml="auto">
+                        ₹{sig.entry.toLocaleString("en-IN")}
+                      </Typography>
+                    )}
+                    {sig.rr_t1 != null && (
+                      <Typography
+                        variant="caption"
+                        fontWeight={600}
+                        color={sig.rr_t1 >= 2 ? "success.main" : "text.secondary"}
+                        sx={{ minWidth: 36, textAlign: "right" }}
+                      >
+                        {sig.rr_t1.toFixed(1)}x
+                      </Typography>
+                    )}
+                  </Box>
+                );
+              })}
+            </Stack>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scan completion summary card
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ScanCompletionCard({ summary }: { summary: CompletionSummary }) {
+  return (
+    <Card sx={{ mb: 2, bgcolor: "rgba(34,197,94,0.05)", border: "1px solid rgba(34,197,94,0.2)" }}>
+      <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+        <Box display="flex" alignItems="center" gap={1} mb={1}>
+          <CheckCircleOutline sx={{ fontSize: 16, color: "success.main" }} />
+          <Typography variant="body2" fontWeight={600}>
+            Scan complete — {summary.signals_count.toLocaleString()} signals in{" "}
+            {formatDuration(summary.duration_sec)}
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={3}>
+          <Box>
+            <Typography variant="body2" fontWeight={700} color="#22c55e">{summary.buy_count}</Typography>
+            <Typography variant="caption" color="text.secondary">BUY Signals</Typography>
+          </Box>
+          <Box>
+            <Typography variant="body2" fontWeight={700} color="#f59e0b">{summary.watch_count}</Typography>
+            <Typography variant="caption" color="text.secondary">Watch</Typography>
+          </Box>
+          <Box>
+            <Typography variant="body2" fontWeight={700} color="#64748b">{summary.no_action_count}</Typography>
+            <Typography variant="caption" color="text.secondary">No Action</Typography>
+          </Box>
+        </Stack>
       </CardContent>
     </Card>
   );
@@ -170,9 +355,11 @@ function ScanProgressBanner({
 export default function ScannerPage() {
   const dispatch = useDispatch<AppDispatch>();
 
-  const scanProgress    = useSelector((s: RootState) => s.ws.scanProgress);
-  const currentScanId   = useSelector((s: RootState) => s.ws.currentScanId);
-  const streamingRaw    = useSelector((s: RootState) => s.ws.streamingSignals);
+  const scanProgress          = useSelector((s: RootState) => s.ws.scanProgress);
+  const scanStartedAt         = useSelector((s: RootState) => s.ws.scanStartedAt);
+  const lastCompletionSummary = useSelector((s: RootState) => s.ws.lastCompletionSummary);
+  const currentScanId         = useSelector((s: RootState) => s.ws.currentScanId);
+  const streamingRaw          = useSelector((s: RootState) => s.ws.streamingSignals);
 
   const [activeTab, setActiveTab]   = useState<FilterTab>("BUY");
   const [scanMode, setScanMode]     = useState("nifty500");
@@ -182,20 +369,42 @@ export default function ScannerPage() {
 
   // ── Scan control ───────────────────────────────────────────────────────
   const [triggerScan, { isLoading: isTriggerLoading }] = useTriggerScanMutation();
+  const [stopScan,    { isLoading: isStopping       }] = useStopScanMutation();
 
   // ── Detect already-running scans on page load ──────────────────────────
   const { data: scans } = useListScansQuery();
   const latestScan = scans?.[0];
 
+  // Use a ref so the effect only re-runs when `scans` changes, not when
+  // isScanning changes. Without this, dispatching scanStarted() inside the
+  // effect flips isScanning → true → dependency changed → effect re-runs →
+  // finds the same pending scan → dispatches again → infinite loop.
+  const isScanningRef = useRef(false);
+  isScanningRef.current = isScanning;
+
   useEffect(() => {
-    if (!scans || isScanning) return;
+    if (!scans) return;
+    if (isScanningRef.current) return;
     const runningScan = scans.find(
       (s) => s.status === "pending" || s.status === "running"
     );
     if (runningScan) {
       dispatch(scanStarted(runningScan.id));
     }
-  }, [scans, isScanning, dispatch]);
+  }, [scans, dispatch]);
+
+  const handleStopScan = async () => {
+    const id = currentScanId ?? scans?.find(s => s.status === "pending" || s.status === "running")?.id;
+    if (!id) return;
+    try {
+      await stopScan(id).unwrap();
+      dispatch(scanFailed());              // reset UI immediately without waiting for WS round-trip
+    } catch (err: any) {
+      if (err?.status === 409) {
+        dispatch(scanFailed());            // scan already finished — just clear local state
+      }
+    }
+  };
 
   const handleRunScan = async () => {
     try {
@@ -327,8 +536,19 @@ export default function ScannerPage() {
         </Box>
       )}
 
-      {/* ── Progress banner ──────────────────────────────────────────────── */}
-      <ScanProgressBanner progress={scanProgress} streamingCount={streamingRaw.length} />
+      {/* ── Scan detail panel (running) / completion card (just finished) ── */}
+      {scanProgress && (
+        <ScanDetailPanel
+          progress={scanProgress}
+          streamingSignals={streamingRaw}
+          scanStartedAt={scanStartedAt}
+          onStop={handleStopScan}
+          isStopping={isStopping}
+        />
+      )}
+      {!scanProgress && lastCompletionSummary && (
+        <ScanCompletionCard summary={lastCompletionSummary} />
+      )}
 
       {/* ── Filter tabs ──────────────────────────────────────────────────── */}
       <Card sx={{ mb: 0 }}>
@@ -427,12 +647,11 @@ export default function ScannerPage() {
         )}
       </Card>
 
-      {/* ── Streaming info footer ─────────────────────────────────────────── */}
+      {/* ── Footer note (scanning) ─────────────────────────────────────────── */}
       {isScanning && streamingRaw.length > 0 && (
         <Box mt={1} px={0.5}>
           <Typography variant="caption" color="text.disabled">
-            Showing {filteredStreaming.length} of {streamingRaw.length} signals found so far —
-            results will refresh when scan completes
+            Table shows {filteredStreaming.length} of {streamingRaw.length} signals matching current filter — results finalise when scan completes
           </Typography>
         </Box>
       )}

@@ -101,6 +101,14 @@ export const scannerApi = createApi({
       invalidatesTags: ["Scan"],
     }),
 
+    stopScan: builder.mutation<{ stopped: boolean; scan_id: string }, string>({
+      query: (scan_id) => ({
+        url: `/scans/${scan_id}/stop`,
+        method: "POST",
+      }),
+      invalidatesTags: ["Scan", "Dashboard"],
+    }),
+
     getScanStatus: builder.query<ScanResult, string>({
       query: (scanId) => `/scans/${scanId}`,
       providesTags: (_r, _e, id) => [{ type: "Scan", id }],
@@ -135,6 +143,7 @@ export const {
   useGetDashboardQuery,
   useGetScanResultsQuery,
   useTriggerScanMutation,
+  useStopScanMutation,
   useGetScanStatusQuery,
   useListScansQuery,
   useGetScanScheduleQuery,

@@ -74,7 +74,9 @@ async def _sync_async(phases: list[str]) -> None:
     Creates its own local asyncpg pool independent of the FastAPI global pool
     (same pattern as _run_backtest_async in backtest_tasks.py).
     """
+    import json
     import asyncpg
+    import redis.asyncio as aioredis
     from app.config import get_settings
     from app.services.stock_service import (
         sync_nse_equity_async,
@@ -89,21 +91,49 @@ async def _sync_async(phases: list[str]) -> None:
         max_size=3,
         command_timeout=60,
     )
+    redis = await aioredis.from_url(settings.redis_url, decode_responses=True)
+    _TTL = 7200
+
+    async def _set_phase(name: str) -> None:
+        await redis.set("stock_sync:phase", name, ex=_TTL)
+
     try:
         if "equity" in phases:
+            await _set_phase("equity")
             async with local_pool.acquire() as conn:
                 result = await sync_nse_equity_async(conn)
                 log.info("stock_master_equity_sync_done", **result)
 
         if "index_flags" in phases:
+            await _set_phase("index_flags")
             async with local_pool.acquire() as conn:
                 result = await sync_index_flags_async(conn)
                 log.info("stock_master_index_flags_done", **result)
 
         if "fundamentals" in phases:
-            async with local_pool.acquire() as conn:
-                result = await enrich_fundamentals_async(conn, batch_size=50)
-                log.info("stock_master_fundamentals_done", **result)
+            await _set_phase("fundamentals")
+            total_processed = total_succeeded = total_failed = 0
+            while True:
+                async with local_pool.acquire() as conn:
+                    result = await enrich_fundamentals_async(conn, batch_size=50)
+                total_processed += result["processed"]
+                total_succeeded += result["succeeded"]
+                total_failed    += result["failed"]
+                await redis.set("stock_sync:progress", json.dumps({
+                    "processed": total_processed,
+                    "succeeded": total_succeeded,
+                    "failed":    total_failed,
+                }), ex=_TTL)
+                log.info("stock_master_fundamentals_batch", **result)
+                if result["processed"] == 0:
+                    break
+            log.info(
+                "stock_master_fundamentals_done",
+                processed=total_processed,
+                succeeded=total_succeeded,
+                failed=total_failed,
+            )
 
     finally:
+        await redis.aclose()
         await local_pool.close()

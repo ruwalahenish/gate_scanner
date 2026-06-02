@@ -84,6 +84,21 @@ export interface Bar {
   ema200: number | null;
 }
 
+export interface SyncTaskStatus {
+  is_running: boolean;
+  state: "idle" | "PENDING" | "STARTED" | "SUCCESS" | "FAILURE" | "RETRY" | "UNKNOWN";
+  task_id?: string;
+  phases?: string[];
+  started_at?: string;
+  current_phase?: string | null;
+  progress?: {
+    processed: number;
+    succeeded: number;
+    failed: number;
+  } | null;
+  error?: string | null;
+}
+
 // Per-symbol backtest trade (returned by /api/stocks/{symbol}/backtest-trades)
 export interface BacktestTrade {
   symbol: string;

@@ -44,13 +44,23 @@ def _fetch_prices_sync(symbols: list[str]) -> dict[str, float]:
     return result
 
 
+_PRICE_TIMEOUT = 8.0   # seconds — yfinance fast_info is usually <2 s; 8 s covers slow market-close polls
+_BULK_TIMEOUT  = 12.0  # slightly longer for multi-symbol batch
+
+
 async def get_price(symbol: str, redis: aioredis.Redis) -> float | None:
     cache_key = f"price:{symbol}"
     cached = await redis.get(cache_key)
     if cached:
         return float(cached)
     loop = asyncio.get_event_loop()
-    price = await loop.run_in_executor(_executor, _fetch_price_sync, symbol)
+    try:
+        price = await asyncio.wait_for(
+            loop.run_in_executor(_executor, _fetch_price_sync, symbol),
+            timeout=_PRICE_TIMEOUT,
+        )
+    except Exception:
+        return None
     if price:
         await redis.setex(cache_key, 60, str(price))
     return price
@@ -77,7 +87,14 @@ async def get_bulk_prices(
 
     if missing:
         loop = asyncio.get_event_loop()
-        fetched = await loop.run_in_executor(_executor, _fetch_prices_sync, missing)
+        try:
+            fetched = await asyncio.wait_for(
+                loop.run_in_executor(_executor, _fetch_prices_sync, missing),
+                timeout=_BULK_TIMEOUT,
+            )
+        except Exception:
+            log.warning("bulk_price_fetch_timeout", symbols=missing)
+            fetched = {}
         pipe = redis.pipeline()
         for sym, price in fetched.items():
             result[sym] = price

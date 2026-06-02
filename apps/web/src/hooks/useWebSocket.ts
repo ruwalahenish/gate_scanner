@@ -92,10 +92,13 @@ function handleMessage(
       break;
 
     case "scan.complete":
-      dispatch(scanCompleted(msg.payload.scan_id as string));
+      dispatch(scanCompleted({
+        scan_id:       msg.payload.scan_id       as string,
+        signals_count: msg.payload.signals_count as number ?? 0,
+      }));
       dispatch(scannerApi.util.invalidateTags(["Signal", "Scan", "Dashboard"]));
       dispatch(stockMasterApi.util.invalidateTags(["Stock"]));
-      setTimeout(() => dispatch(clearStreamingSignals()), 2000);
+      setTimeout(() => dispatch(clearStreamingSignals()), 5000);
       enqueueSnackbar(
         `Scan complete — ${msg.payload.signals_count} signals found`,
         { variant: "success", autoHideDuration: 5000 }

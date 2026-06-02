@@ -28,7 +28,10 @@ async def get_summary(
     positions = await q.get_open_positions(conn)
     if positions:
         symbols = list({p["symbol"] for p in positions})
-        prices = await get_bulk_prices(symbols, redis)
+        try:
+            prices = await get_bulk_prices(symbols, redis)
+        except Exception:
+            prices = {}
         unrealized = sum(
             (prices.get(p["symbol"], p["avg_entry"]) - float(p["avg_entry"])) * p["quantity"]
             for p in positions
@@ -46,7 +49,10 @@ async def get_positions(
     if not positions:
         return []
     symbols = list({p["symbol"] for p in positions})
-    prices = await get_bulk_prices(symbols, redis)
+    try:
+        prices = await get_bulk_prices(symbols, redis)
+    except Exception:
+        prices = {}
 
     result = []
     for p in positions:
@@ -149,7 +155,10 @@ async def get_performance(
     unrealized = 0.0
     if positions:
         symbols = list({p["symbol"] for p in positions})
-        prices = await get_bulk_prices(symbols, redis)
+        try:
+            prices = await get_bulk_prices(symbols, redis)
+        except Exception:
+            prices = {}
         unrealized = sum(
             (prices.get(p["symbol"], float(p["avg_entry"])) - float(p["avg_entry"])) * p["quantity"]
             for p in positions

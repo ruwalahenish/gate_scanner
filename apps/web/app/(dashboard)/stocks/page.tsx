@@ -1,8 +1,8 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Box, Typography, Grid, Chip, Button, TextField,
+  Box, Typography, Grid, Card, CardContent, Chip, Button, TextField,
   Select, MenuItem, FormControl, InputLabel, Stack, Tooltip,
   CircularProgress, Alert, LinearProgress,
   Dialog, DialogTitle, DialogContent, DialogActions, Stepper, Step, StepLabel,
@@ -10,7 +10,7 @@ import {
 import { DataGrid, type GridColDef, type GridPaginationModel, type GridRowParams } from "@mui/x-data-grid";
 import { Sync, CheckCircle, Schedule, ErrorOutline, Info } from "@mui/icons-material";
 import { useSnackbar } from "notistack";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
 import { StatCard } from "@/components/ui/StatCard";
 import { GATEBar } from "@/components/ui/GATEBar";
 import { formatCompact, formatPrice, formatIST, formatRR } from "@/lib/formatters";
@@ -18,9 +18,11 @@ import {
   useListStocksQuery,
   useGetStockStatsQuery,
   useTriggerSyncMutation,
+  useGetSyncStatusQuery,
+  stockMasterApi,
 } from "@/store/api/stockMasterApi";
-import type { RootState } from "@/store";
-import type { StockFilters, Stock } from "@/types/stock";
+import type { RootState, AppDispatch } from "@/store";
+import type { StockFilters, Stock, SyncTaskStatus } from "@/types/stock";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Business-terminology status chip for signal column
@@ -111,7 +113,7 @@ function SyncDialog({
         </Stepper>
         {phases.includes("fundamentals") && (
           <Alert severity="info" sx={{ mt: 2, fontSize: "0.78rem" }}>
-            Phase 3 enriches stocks in batches of 50 and may run for 10–30 minutes depending on the queue size.
+            Phase 3 processes all pending stocks in batches of 50. Progress is shown live on this page — buttons are disabled until the sync finishes.
           </Alert>
         )}
       </DialogContent>
@@ -127,6 +129,79 @@ function SyncDialog({
         </Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sync progress card
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PHASE_LABEL: Record<string, string> = {
+  equity:       "Phase 1 — Downloading NSE equity list",
+  index_flags:  "Phase 2 — Updating index memberships",
+  fundamentals: "Phase 3 — Enriching fundamentals (yfinance)",
+};
+
+function SyncProgressCard({ status }: { status: SyncTaskStatus }) {
+  if (status.state === "idle") return null;
+
+  const isRunning  = status.is_running;
+  const isSuccess  = status.state === "SUCCESS";
+  const isFailure  = status.state === "FAILURE";
+
+  const borderColor = isSuccess
+    ? "rgba(34,197,94,0.3)"
+    : isFailure
+    ? "rgba(239,68,68,0.3)"
+    : "rgba(99,102,241,0.3)";
+
+  const phaseLabel = status.current_phase
+    ? PHASE_LABEL[status.current_phase] ?? status.current_phase
+    : "Initialising…";
+
+  return (
+    <Card sx={{ mb: 2, border: "1px solid", borderColor, bgcolor: "transparent" }}>
+      <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+        {/* Title row */}
+        <Box display="flex" alignItems="center" gap={1} mb={isRunning ? 0.8 : 0}>
+          {isRunning  && <CircularProgress size={14} thickness={5} />}
+          {isSuccess  && <CheckCircle sx={{ fontSize: 16, color: "success.main" }} />}
+          {isFailure  && <ErrorOutline sx={{ fontSize: 16, color: "error.main" }} />}
+          <Typography variant="body2" fontWeight={600}>
+            {isRunning  && `Sync running — ${phaseLabel}`}
+            {isSuccess  && "Sync completed successfully"}
+            {isFailure  && `Sync failed: ${status.error ?? "unknown error"}`}
+          </Typography>
+          {status.started_at && (
+            <Typography variant="caption" color="text.disabled" ml="auto">
+              started {formatIST(status.started_at)}
+            </Typography>
+          )}
+        </Box>
+
+        {/* Progress bar (running only) */}
+        {isRunning && (
+          <LinearProgress variant="indeterminate" sx={{ height: 3, borderRadius: 2, mb: 0.8 }} />
+        )}
+
+        {/* Fundamentals batch counters */}
+        {status.progress && (
+          <Stack direction="row" spacing={2.5} mt={0.3}>
+            <Typography variant="caption" color="text.secondary">
+              Processed: <strong>{status.progress.processed.toLocaleString()}</strong>
+            </Typography>
+            <Typography variant="caption" color="success.light">
+              ✓ {status.progress.succeeded.toLocaleString()} enriched
+            </Typography>
+            {status.progress.failed > 0 && (
+              <Typography variant="caption" color="error.light">
+                ✗ {status.progress.failed} failed
+              </Typography>
+            )}
+          </Stack>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -151,8 +226,38 @@ const CATEGORY_OPTIONS = [
 ];
 
 export default function StocksPage() {
-  const router = useRouter();
+  const router   = useRouter();
+  const dispatch = useDispatch<AppDispatch>();
   const { enqueueSnackbar } = useSnackbar();
+
+  // ── Stock master sync status ───────────────────────────────────────────────
+  const { data: syncStatus, refetch: refetchSyncStatus } = useGetSyncStatusQuery(undefined, {
+    pollingInterval: 5000,
+  });
+  const syncRunning    = syncStatus?.is_running ?? false;
+  const prevRunningRef = useRef(false);
+
+  // Detect sync completion → notify + refresh stats
+  useEffect(() => {
+    if (prevRunningRef.current && !syncRunning && syncStatus) {
+      if (syncStatus.state === "SUCCESS") {
+        const p = syncStatus.progress;
+        enqueueSnackbar(
+          p
+            ? `Sync complete — ${p.succeeded.toLocaleString()} enriched, ${p.failed} failed`
+            : "Sync completed successfully",
+          { variant: "success", autoHideDuration: 6000 },
+        );
+      } else if (syncStatus.state === "FAILURE") {
+        enqueueSnackbar(`Sync failed: ${syncStatus.error ?? "unknown error"}`, {
+          variant: "error",
+          autoHideDuration: 8000,
+        });
+      }
+      dispatch(stockMasterApi.util.invalidateTags(["StockSync", "Stock"]));
+    }
+    prevRunningRef.current = syncRunning;
+  }, [syncRunning, syncStatus, dispatch, enqueueSnackbar]);
 
   // Live scan state from WebSocket
   const scanProgress      = useSelector((s: RootState) => s.ws.scanProgress);
@@ -185,10 +290,12 @@ export default function StocksPage() {
     try {
       const result = await triggerSync({ phases }).unwrap();
       enqueueSnackbar(
-        `${phases.length === 3 ? "Full sync" : "Index sync"} queued (${result.task_id.slice(0, 8)}…) — running in background`,
-        { variant: "success", autoHideDuration: 5000 }
+        `${phases.length === 3 ? "Full sync" : "Index sync"} queued (${result.task_id.slice(0, 8)}…)`,
+        { variant: "info", autoHideDuration: 4000 },
       );
       setSyncDialog(null);
+      // Start polling immediately
+      refetchSyncStatus();
     } catch {
       enqueueSnackbar("Failed to queue sync — is Celery running?", { variant: "error" });
     }
@@ -370,23 +477,41 @@ export default function StocksPage() {
             Central registry · click any row to view GATE chart and analysis
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1}>
-          <Button
-            variant="outlined" size="small"
-            startIcon={<Sync />}
-            disabled={syncing}
-            onClick={() => setSyncDialog(["equity", "index_flags"])}
-          >
-            Sync Indices
-          </Button>
-          <Button
-            variant="contained" size="small"
-            startIcon={<Sync />}
-            disabled={syncing}
-            onClick={() => setSyncDialog(["equity", "index_flags", "fundamentals"])}
-          >
-            Full Sync
-          </Button>
+        <Stack direction="row" spacing={1} alignItems="center">
+          {syncRunning && (
+            <Chip
+              icon={<CircularProgress size={12} color="inherit" />}
+              label="Sync running…"
+              size="small"
+              color="primary"
+              variant="outlined"
+              sx={{ fontSize: "0.72rem" }}
+            />
+          )}
+          <Tooltip title={syncRunning ? "A sync is already running" : ""} disableHoverListener={!syncRunning}>
+            <span>
+              <Button
+                variant="outlined" size="small"
+                startIcon={<Sync />}
+                disabled={syncing || syncRunning}
+                onClick={() => setSyncDialog(["equity", "index_flags"])}
+              >
+                Sync Indices
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip title={syncRunning ? "A sync is already running" : ""} disableHoverListener={!syncRunning}>
+            <span>
+              <Button
+                variant="contained" size="small"
+                startIcon={<Sync />}
+                disabled={syncing || syncRunning}
+                onClick={() => setSyncDialog(["equity", "index_flags", "fundamentals"])}
+              >
+                Full Sync
+              </Button>
+            </span>
+          </Tooltip>
         </Stack>
       </Box>
 
@@ -405,6 +530,9 @@ export default function StocksPage() {
           <StatCard label="Failed" value={statsLoading ? "…" : (stats?.by_sync_status?.failed ?? 0).toLocaleString()} color="#ef4444" icon={<ErrorOutline />} subtitle="retry in 6 h" />
         </Grid>
       </Grid>
+
+      {/* Stock master sync progress */}
+      {syncStatus && <SyncProgressCard status={syncStatus} />}
 
       {/* Scan progress banner */}
       {isScanning && (

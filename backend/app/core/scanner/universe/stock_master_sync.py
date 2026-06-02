@@ -293,8 +293,9 @@ def _safe_float(v) -> float | None:
     if v is None:
         return None
     try:
+        import math
         f = float(v)
-        return None if (f != f) else f   # NaN check
+        return None if (not math.isfinite(f)) else f   # reject NaN and ±inf
     except (TypeError, ValueError):
         return None
 
