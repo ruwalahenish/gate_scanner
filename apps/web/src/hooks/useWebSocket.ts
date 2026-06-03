@@ -128,6 +128,18 @@ function handleMessage(
       dispatch(paperTradingApi.util.invalidateTags(["Position", "Summary"]));
       break;
 
+    case "trade.monitor": {
+      const closed = msg.payload.positions_closed as number;
+      dispatch(paperTradingApi.util.invalidateTags(["Position", "Trade", "Summary", "Performance"]));
+      if (closed > 0) {
+        enqueueSnackbar(
+          `Auto-exit: ${closed} position${closed !== 1 ? "s" : ""} closed automatically`,
+          { variant: "info", autoHideDuration: 5000 }
+        );
+      }
+      break;
+    }
+
     case "scan.failed":
       dispatch(scanFailed());
       enqueueSnackbar(

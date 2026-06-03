@@ -10,7 +10,12 @@ celery_app = Celery(
     "gate_tasks",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.scanner_tasks", "app.tasks.backtest_tasks", "app.tasks.stock_tasks"],
+    include=[
+        "app.tasks.scanner_tasks",
+        "app.tasks.backtest_tasks",
+        "app.tasks.stock_tasks",
+        "app.tasks.trading_tasks",
+    ],
 )
 
 celery_app.conf.update(
@@ -46,6 +51,8 @@ celery_app.conf.update(
         "app.tasks.backtest_tasks.run_backtest_task":   {"queue": "backtests"},
         "app.tasks.stock_tasks.sync_stock_master":      {"queue": "admin"},
         "app.tasks.stock_tasks.enrich_fundamentals_batch": {"queue": "admin"},
+        "app.tasks.trading_tasks.monitor_paper_trades_task":       {"queue": "default"},
+        "app.tasks.trading_tasks.broadcast_position_prices_task":  {"queue": "default"},
     },
 
     # Windows compatibility: solo pool avoids POSIX semaphore failures
@@ -69,6 +76,16 @@ celery_app.conf.update(
             "task": "app.tasks.stock_tasks.enrich_fundamentals_batch",
             "schedule": crontab(minute="*/15"),
             "options": {"queue": "admin"},
+        },
+        "monitor-paper-trades": {
+            "task": "app.tasks.trading_tasks.monitor_paper_trades_task",
+            "schedule": crontab(minute="*/5"),
+            "options": {"queue": "default"},
+        },
+        "broadcast-position-prices": {
+            "task": "app.tasks.trading_tasks.broadcast_position_prices_task",
+            "schedule": crontab(minute="*/2"),
+            "options": {"queue": "default"},
         },
     },
 )

@@ -9,6 +9,7 @@ Services started:
   • Redis        via Docker (skipped when Redis already on :6379)
   • FastAPI API  uvicorn --reload on :8000
   • Celery       worker with 2 concurrency slots
+  • Celery Beat  periodic task scheduler (paper trade monitoring + price broadcast)
   • Next.js      npm run dev on :3000
 
 Prerequisites:
@@ -53,6 +54,7 @@ _C = {
     "redis":  "\033[35m",   # magenta
     "api":    "\033[36m",   # cyan
     "worker": "\033[33m",   # yellow
+    "beat":   "\033[34m",   # blue
     "web":    "\033[32m",   # green
     "info":   "\033[90m",   # grey
     "ok":     "\033[32;1m", # bold green
@@ -288,7 +290,7 @@ def main() -> None:
     else:
         log("api", f"{c('err')}Did not respond within 30 s — check logs above{c('reset')}")
 
-    # ── 4. Celery worker ──────────────────────────────────────────────────
+    # ── 4. Celery worker + Beat scheduler ────────────────────────────────
     if not args.no_worker:
         log("worker", "Starting Celery worker…")
         worker_cmd = [
@@ -304,8 +306,15 @@ def main() -> None:
         else:
             worker_cmd += ["--concurrency=2"]
         _spawn("worker", worker_cmd, cwd=BACKEND, env=env)
+
+        log("beat", "Starting Celery Beat scheduler…")
+        _spawn("beat", [
+            sys.executable, "-m", "celery",
+            "-A", "app.tasks.celery_app", "beat",
+            "--loglevel=info",
+        ], cwd=BACKEND, env=env)
     else:
-        log("info", "Celery worker skipped (--no-worker)")
+        log("info", "Celery worker + Beat skipped (--no-worker)")
 
     # ── 5. Next.js dev server ─────────────────────────────────────────────
     log("web", "Starting Next.js on :3000…")
