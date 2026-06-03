@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: gate-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: SCAN_EXECUTOR_WORKERS
+        value: "1"
+      - key: GATE_CACHE_DIR
+        value: "/tmp/.gate_cache"
+      # Set these as secrets in the Render dashboard — do not commit real values here
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
