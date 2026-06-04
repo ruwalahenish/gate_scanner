@@ -58,6 +58,18 @@ export const stockMasterApi = createApi({
         url: `/${symbol}/backtest-trades`,
         params: { limit },
       }),
+      providesTags: (_, __, { symbol }) => [{ type: "Stock", id: `bt-${symbol}` }],
+    }),
+    // Trigger a 7-year per-symbol backtest
+    triggerStockBacktest: builder.mutation<
+      { backtest_id: string; status: string },
+      { symbol: string; investment_per_stock: number }
+    >({
+      query: ({ symbol, investment_per_stock }) => ({
+        url: `/${symbol}/backtest`,
+        method: "POST",
+        body: { investment_per_stock },
+      }),
     }),
   }),
 });
@@ -72,4 +84,5 @@ export const {
   useGetStockChartDataQuery,
   useGetStockAnalysisQuery,
   useGetStockBacktestTradesQuery,
+  useTriggerStockBacktestMutation,
 } = stockMasterApi;

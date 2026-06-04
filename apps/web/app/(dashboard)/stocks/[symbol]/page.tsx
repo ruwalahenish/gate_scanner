@@ -1,13 +1,17 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Box, Typography, Grid, Chip, Button, Tabs, Tab,
   Select, MenuItem, FormControl, Stack, Divider,
-  CircularProgress, Paper, Tooltip,
+  CircularProgress, Paper, Tooltip, TextField,
+  InputAdornment, Alert,
 } from "@mui/material";
 import { DataGrid, type GridColDef } from "@mui/x-data-grid";
-import { ArrowBack, Refresh, TrendingUp, TrendingDown } from "@mui/icons-material";
+import {
+  ArrowBack, Refresh, TrendingUp, TrendingDown,
+  PlayArrow, Stop,
+} from "@mui/icons-material";
 import { GATEChart } from "@/components/domain/GATEChart";
 import { GATEBar } from "@/components/ui/GATEBar";
 import { CategoryChip } from "@/components/ui/CategoryChip";
@@ -18,7 +22,12 @@ import {
   useGetStockChartDataQuery,
   useGetStockAnalysisQuery,
   useGetStockBacktestTradesQuery,
+  useTriggerStockBacktestMutation,
 } from "@/store/api/stockMasterApi";
+import {
+  useGetBacktestStatusQuery,
+  useCancelBacktestMutation,
+} from "@/store/api/backtestApi";
 import { useGetPriceQuery } from "@/store/api/marketApi";
 import type { BacktestTrade } from "@/types/stock";
 
@@ -31,35 +40,91 @@ const TIMEFRAMES = [
   { value: "15m", label: "15 Min" },
 ];
 
+const TERMINAL_STATUSES = new Set(["done", "failed", "cancelled"]);
+
+function tradeStatus(exitReason: string | null): { label: string; color: string } {
+  if (!exitReason) return { label: "Open", color: "#f59e0b" };
+  if (exitReason === "SL") return { label: "SL Hit", color: "#ef4444" };
+  if (["T1", "T2", "T3", "TRAIL"].includes(exitReason)) return { label: "Target Hit", color: "#22c55e" };
+  return { label: "Closed", color: "#6b7280" };
+}
+
 const BACKTEST_COLUMNS: GridColDef<BacktestTrade>[] = [
   {
     field: "entry_date",
     headerName: "Entry",
-    width: 100,
+    width: 95,
     renderCell: (p) => <Typography variant="caption">{p.value?.slice(0, 10)}</Typography>,
   },
   {
     field: "exit_date",
     headerName: "Exit",
-    width: 100,
+    width: 95,
     renderCell: (p) => <Typography variant="caption">{p.value?.slice(0, 10) ?? "—"}</Typography>,
   },
   {
+    field: "exit_reason",
+    headerName: "Status",
+    width: 100,
+    renderCell: (p) => {
+      const s = tradeStatus(p.value ?? null);
+      return (
+        <Chip
+          label={s.label}
+          size="small"
+          sx={{ height: 18, fontSize: "0.68rem", bgcolor: `${s.color}22`, color: s.color, fontWeight: 600 }}
+        />
+      );
+    },
+  },
+  {
     field: "entry_price",
-    headerName: "Buy",
+    headerName: "Buy ₹",
     width: 80,
     renderCell: (p) => <Typography variant="caption">{formatPrice(p.value)}</Typography>,
   },
   {
     field: "exit_price",
-    headerName: "Sell",
+    headerName: "Sell ₹",
     width: 80,
-    renderCell: (p) => <Typography variant="caption">{p.value ? formatPrice(p.value) : "—"}</Typography>,
+    renderCell: (p) => (
+      <Typography variant="caption">{p.value ? formatPrice(p.value) : "—"}</Typography>
+    ),
+  },
+  {
+    field: "quantity",
+    headerName: "Qty",
+    width: 60,
+    renderCell: (p) => <Typography variant="caption">{p.value ?? "—"}</Typography>,
+  },
+  {
+    field: "invested_amount",
+    headerName: "Invested ₹",
+    width: 100,
+    renderCell: (p) => (
+      <Typography variant="caption">{p.value != null ? formatPrice(p.value) : "—"}</Typography>
+    ),
+  },
+  {
+    field: "pnl_abs",
+    headerName: "P&L ₹",
+    width: 90,
+    renderCell: (p) =>
+      p.value != null ? (
+        <Typography
+          variant="caption"
+          fontWeight={600}
+          color={p.value >= 0 ? "success.main" : "error.main"}
+        >
+          {p.value >= 0 ? "+" : ""}
+          {formatPrice(p.value)}
+        </Typography>
+      ) : <Typography variant="caption" color="text.disabled">—</Typography>,
   },
   {
     field: "pnl_pct",
     headerName: "P&L %",
-    width: 80,
+    width: 75,
     renderCell: (p) =>
       p.value != null ? (
         <Typography
@@ -89,18 +154,12 @@ const BACKTEST_COLUMNS: GridColDef<BacktestTrade>[] = [
     renderCell: (p) => <Typography variant="caption">{p.value ?? "—"}</Typography>,
   },
   {
-    field: "exit_reason",
-    headerName: "Exit Reason",
-    width: 120,
-    renderCell: (p) => (
-      <Typography variant="caption" color="text.secondary">{p.value ?? "—"}</Typography>
-    ),
-  },
-  {
     field: "backtest_date",
-    headerName: "Backtest",
+    headerName: "Scan Date",
     width: 130,
-    renderCell: (p) => <Typography variant="caption" color="text.disabled">{formatIST(p.value)}</Typography>,
+    renderCell: (p) => (
+      <Typography variant="caption" color="text.disabled">{formatIST(p.value)}</Typography>
+    ),
   },
 ];
 
@@ -115,6 +174,21 @@ function LevelRow({ label, value, color }: { label: string; value: number | null
   );
 }
 
+function ElapsedTimer({ startedAt }: { startedAt: string | null }) {
+  const [elapsed, setElapsed] = useState(0);
+  const ref = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    const base = startedAt ? new Date(startedAt).getTime() : Date.now();
+    ref.current = setInterval(() => setElapsed(Math.floor((Date.now() - base) / 1000)), 1000);
+    return () => { if (ref.current) clearInterval(ref.current); };
+  }, [startedAt]);
+
+  const m = String(Math.floor(elapsed / 60)).padStart(2, "0");
+  const s = String(elapsed % 60).padStart(2, "0");
+  return <>{m}:{s}</>;
+}
+
 export default function StockDetailPage() {
   const params = useParams<{ symbol: string }>();
   const router = useRouter();
@@ -123,6 +197,12 @@ export default function StockDetailPage() {
   const [tab, setTab] = useState(0);
   const [timeframe, setTimeframe] = useState("1d");
   const [analysisTriggered, setAnalysisTriggered] = useState(false);
+
+  // Backtest tab state
+  const [budget, setBudget] = useState("10000");
+  const [budgetError, setBudgetError] = useState<string | null>(null);
+  const [activeScanId, setActiveScanId] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   const { data: stock } = useGetStockQuery(symbol);
   const { data: priceData } = useGetPriceQuery(symbol, { pollingInterval: 60_000 });
@@ -133,10 +213,85 @@ export default function StockDetailPage() {
   const { data: analysisData, isFetching: analysisLoading } = useGetStockAnalysisQuery(symbol, {
     skip: !analysisTriggered && tab !== 1,
   });
-  const { data: tradeHistory, isLoading: tradesLoading } = useGetStockBacktestTradesQuery(
-    { symbol, limit: 100 },
+  const {
+    data: tradeHistory,
+    isLoading: tradesLoading,
+    refetch: refetchTrades,
+  } = useGetStockBacktestTradesQuery(
+    { symbol, limit: 200 },
     { skip: tab !== 2 },
   );
+
+  const [triggerBacktest, { isLoading: isTriggering }] = useTriggerStockBacktestMutation();
+  const [cancelBacktest, { isLoading: isCancelling }] = useCancelBacktestMutation();
+
+  // Poll the active scan status until terminal
+  const { data: scanStatus } = useGetBacktestStatusQuery(activeScanId!, {
+    skip: !activeScanId,
+    pollingInterval: activeScanId && !TERMINAL_STATUSES.has(scanStatus?.status ?? "") ? 3000 : 0,
+  });
+
+  // Refetch trades when scan completes
+  useEffect(() => {
+    if (scanStatus?.status === "done") {
+      refetchTrades();
+    }
+    if (scanStatus?.status === "failed") {
+      setScanError(scanStatus.error_message ?? "Backtest failed unexpectedly.");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanStatus?.status]);
+
+  const isScanning = !!activeScanId && !TERMINAL_STATUSES.has(scanStatus?.status ?? "");
+
+  const handleFullScan = async () => {
+    const val = parseFloat(budget);
+    if (isNaN(val) || val < 5000) {
+      setBudgetError("Minimum ₹5,000 required");
+      return;
+    }
+    setBudgetError(null);
+    setScanError(null);
+    setActiveScanId(null);
+    try {
+      const res = await triggerBacktest({ symbol, investment_per_stock: val }).unwrap();
+      setActiveScanId(res.backtest_id);
+    } catch {
+      setScanError("Failed to start backtest. Check that the backend and Celery worker are running.");
+    }
+  };
+
+  const handleStopScan = async () => {
+    if (!activeScanId) return;
+    try {
+      await cancelBacktest(activeScanId).unwrap();
+    } catch {
+      // ignore — backend may have already completed
+    }
+  };
+
+  // Derive cumulative stats from scan result (authoritative) or trade list (fallback)
+  const trades = tradeHistory ?? [];
+  const closedTrades = trades.filter((t) => t.pnl_pct != null && t.exit_date);
+
+  const hasScanResult = scanStatus?.status === "done" && scanStatus.total_trades != null;
+
+  const totalTrades   = hasScanResult ? (scanStatus!.total_trades ?? closedTrades.length) : closedTrades.length;
+  const winCount      = hasScanResult ? (scanStatus!.winning_trades ?? 0) : closedTrades.filter((t) => (t.pnl_pct ?? 0) > 0).length;
+  const winRate       = totalTrades > 0 ? Math.round((winCount / totalTrades) * 100) : null;
+  const totalPnlAbs   = hasScanResult
+    ? (scanStatus!.final_equity != null && scanStatus!.initial_capital != null
+        ? scanStatus!.final_equity - scanStatus!.initial_capital : null)
+    : closedTrades.reduce((s, t) => s + (t.pnl_abs ?? 0), 0);
+  const roi           = hasScanResult && scanStatus!.final_equity != null && scanStatus!.initial_capital != null
+    ? ((scanStatus!.final_equity - scanStatus!.initial_capital) / scanStatus!.initial_capital) * 100
+    : null;
+  const avgPnl        = closedTrades.length
+    ? closedTrades.reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / closedTrades.length
+    : null;
+  const bestTrade     = closedTrades.length ? Math.max(...closedTrades.map((t) => t.pnl_pct ?? 0)) : null;
+  const cagr          = hasScanResult ? scanStatus!.cagr : null;
+  const maxDrawdown   = hasScanResult ? scanStatus!.max_drawdown : null;
 
   // Extract signal levels for chart overlay
   const sig = (analysisData as any)?.signal ?? null;
@@ -148,16 +303,6 @@ export default function StockDetailPage() {
 
   const perTf: Record<string, any> = (analysisData as any)?.per_tf ?? {};
   const summary: Record<string, any> = (analysisData as any)?.summary ?? {};
-
-  // Backtest summary stats
-  const trades = tradeHistory ?? [];
-  const closedTrades = trades.filter((t) => t.pnl_pct != null);
-  const winRate = closedTrades.length
-    ? Math.round((closedTrades.filter((t) => (t.pnl_pct ?? 0) > 0).length / closedTrades.length) * 100)
-    : null;
-  const avgPnl = closedTrades.length
-    ? closedTrades.reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / closedTrades.length
-    : null;
 
   return (
     <Box>
@@ -416,47 +561,153 @@ export default function StockDetailPage() {
       {/* ── Tab 2: Backtest History ── */}
       {tab === 2 && (
         <Box>
-          {/* Summary stats */}
-          {trades.length > 0 && (
-            <Grid container spacing={2} mb={2.5}>
-              <Grid item xs={6} sm={3}>
-                <StatCard label="Total Trades" value={closedTrades.length} />
+          {/* Scan control panel */}
+          <Paper
+            sx={{ p: 2, mb: 2.5, bgcolor: "rgba(99,102,241,0.04)", border: "1px solid rgba(99,102,241,0.12)" }}
+          >
+            <Typography variant="subtitle2" fontWeight={700} mb={1.5}>
+              Full Scan — 7 Years GATE History
+            </Typography>
+            <Stack direction="row" alignItems="flex-start" spacing={1.5} flexWrap="wrap" useFlexGap>
+              <TextField
+                size="small"
+                label="Investment per trade"
+                value={budget}
+                onChange={(e) => { setBudget(e.target.value); setBudgetError(null); }}
+                error={!!budgetError}
+                helperText={budgetError ?? "Min ₹5,000"}
+                disabled={isScanning || isTriggering}
+                InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
+                sx={{ width: 200 }}
+              />
+
+              {isScanning ? (
+                <>
+                  <Box display="flex" alignItems="center" gap={1} pt={1}>
+                    <CircularProgress size={16} />
+                    <Typography variant="body2" color="text.secondary">
+                      Scanning 7 years… <ElapsedTimer startedAt={scanStatus?.started_at ?? null} />
+                    </Typography>
+                  </Box>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    size="small"
+                    startIcon={<Stop />}
+                    onClick={handleStopScan}
+                    disabled={isCancelling}
+                    sx={{ mt: 0.5 }}
+                  >
+                    Stop Scan
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={isTriggering ? <CircularProgress size={14} color="inherit" /> : <PlayArrow />}
+                  onClick={handleFullScan}
+                  disabled={isTriggering}
+                  sx={{ mt: 0.5 }}
+                >
+                  Full Scan
+                </Button>
+              )}
+            </Stack>
+
+            {scanStatus?.status === "cancelled" && (
+              <Alert severity="warning" sx={{ mt: 1.5 }} onClose={() => setActiveScanId(null)}>
+                Scan was stopped.
+              </Alert>
+            )}
+            {scanError && (
+              <Alert severity="error" sx={{ mt: 1.5 }} onClose={() => setScanError(null)}>
+                {scanError}
+              </Alert>
+            )}
+            {scanStatus?.status === "done" && (
+              <Alert severity="success" sx={{ mt: 1.5 }} onClose={() => setActiveScanId(null)}>
+                Scan complete — {scanStatus.total_trades ?? 0} trades found over 7 years.
+              </Alert>
+            )}
+          </Paper>
+
+          {/* Summary stats — row 1 */}
+          {(trades.length > 0 || hasScanResult) && (
+            <>
+              <Grid container spacing={1.5} mb={1.5}>
+                <Grid item xs={6} sm={3}>
+                  <StatCard label="Total Trades" value={totalTrades} />
+                </Grid>
+                <Grid item xs={6} sm={3}>
+                  <StatCard
+                    label="Win Rate"
+                    value={winRate != null ? `${winRate}%` : "—"}
+                    color={winRate != null && winRate >= 50 ? "#22c55e" : "#ef4444"}
+                  />
+                </Grid>
+                <Grid item xs={6} sm={3}>
+                  <StatCard
+                    label="Total P&L"
+                    value={totalPnlAbs != null ? `${totalPnlAbs >= 0 ? "+" : ""}${formatPrice(totalPnlAbs)}` : "—"}
+                    color={totalPnlAbs != null && totalPnlAbs >= 0 ? "#22c55e" : "#ef4444"}
+                  />
+                </Grid>
+                <Grid item xs={6} sm={3}>
+                  <StatCard
+                    label="ROI"
+                    value={roi != null ? `${roi >= 0 ? "+" : ""}${roi.toFixed(1)}%` : "—"}
+                    color={roi != null && roi >= 0 ? "#22c55e" : "#ef4444"}
+                  />
+                </Grid>
               </Grid>
-              <Grid item xs={6} sm={3}>
-                <StatCard
-                  label="Win Rate"
-                  value={winRate != null ? `${winRate}%` : "—"}
-                  color={winRate != null && winRate >= 50 ? "#22c55e" : "#ef4444"}
-                />
+
+              {/* Summary stats — row 2 (scan metrics) */}
+              <Grid container spacing={1.5} mb={2.5}>
+                <Grid item xs={6} sm={3}>
+                  <StatCard
+                    label="Avg P&L"
+                    value={avgPnl != null ? formatPct(avgPnl) : "—"}
+                    color={avgPnl != null && avgPnl >= 0 ? "#22c55e" : "#ef4444"}
+                  />
+                </Grid>
+                <Grid item xs={6} sm={3}>
+                  <StatCard
+                    label="Best Trade"
+                    value={bestTrade != null ? formatPct(bestTrade) : "—"}
+                    color="#22c55e"
+                  />
+                </Grid>
+                <Grid item xs={6} sm={3}>
+                  <StatCard
+                    label="CAGR"
+                    value={cagr != null ? `${(cagr * 100).toFixed(1)}%` : "—"}
+                    color={cagr != null && cagr >= 0 ? "#22c55e" : "#ef4444"}
+                  />
+                </Grid>
+                <Grid item xs={6} sm={3}>
+                  <StatCard
+                    label="Max Drawdown"
+                    value={maxDrawdown != null ? `${(maxDrawdown * 100).toFixed(1)}%` : "—"}
+                    color="#ef4444"
+                  />
+                </Grid>
               </Grid>
-              <Grid item xs={6} sm={3}>
-                <StatCard
-                  label="Avg P&L"
-                  value={avgPnl != null ? formatPct(avgPnl) : "—"}
-                  color={avgPnl != null && avgPnl >= 0 ? "#22c55e" : "#ef4444"}
-                />
-              </Grid>
-              <Grid item xs={6} sm={3}>
-                <StatCard
-                  label="Best Trade"
-                  value={closedTrades.length ? formatPct(Math.max(...closedTrades.map((t) => t.pnl_pct ?? 0))) : "—"}
-                  color="#22c55e"
-                />
-              </Grid>
-            </Grid>
+            </>
           )}
 
-          {trades.length === 0 && !tradesLoading ? (
+          {/* Trade table */}
+          {trades.length === 0 && !tradesLoading && !isScanning ? (
             <Box textAlign="center" py={6}>
               <Typography color="text.secondary">
-                No backtest trades found for {symbol}. Run a backtest to see historical results.
+                No backtest trades found for {symbol}. Click <strong>Full Scan</strong> to run a 7-year GATE backtest.
               </Typography>
             </Box>
           ) : (
             <DataGrid
               rows={trades}
               columns={BACKTEST_COLUMNS}
-              loading={tradesLoading}
+              loading={tradesLoading || isScanning}
               getRowId={(r) => `${r.backtest_id}-${r.entry_date}`}
               density="compact"
               hideFooterPagination={trades.length <= 25}

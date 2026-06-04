@@ -4,6 +4,7 @@ import { paperTradingApi } from "./api/paperTradingApi";
 import { watchlistApi } from "./api/watchlistApi";
 import { marketApi } from "./api/marketApi";
 import { stockMasterApi } from "./api/stockMasterApi";
+import { backtestApi } from "./api/backtestApi";
 // Legacy — still used by stock detail pages; will be removed in M7
 import { signalsApi } from "./api/signalsApi";
 import { wsSlice } from "./slices/wsSlice";
@@ -18,6 +19,7 @@ export const store = configureStore({
     [watchlistApi.reducerPath]:       watchlistApi.reducer,
     [marketApi.reducerPath]:          marketApi.reducer,
     [stockMasterApi.reducerPath]:     stockMasterApi.reducer,
+    [backtestApi.reducerPath]:        backtestApi.reducer,
     [signalsApi.reducerPath]:         signalsApi.reducer,
   },
   middleware: (getDefault) =>
@@ -27,6 +29,7 @@ export const store = configureStore({
       watchlistApi.middleware,
       marketApi.middleware,
       stockMasterApi.middleware,
+      backtestApi.middleware,
       signalsApi.middleware,
     ),
 });

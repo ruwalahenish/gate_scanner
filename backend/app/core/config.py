@@ -240,6 +240,6 @@ SCAN_TIMEFRAMES = ["4h", "1d", "1wk"]  # fetch set: SL source | entry | HTF conf
 # AUTOMATED PAPER TRADING (automation_service.py)
 # BUY-category signals above this rank trigger automatic paper trades.
 # -----------------------------------------------------------------------------
-AUTO_TRADE_MIN_RANK        = 0     # category filter (INVESTMENT/SWING/POSITIONAL) is the sole quality gate
+AUTO_TRADE_MIN_RANK        = 50     # category filter (INVESTMENT/SWING/POSITIONAL) is the sole quality gate
 AUTO_TRADE_POSITION_SIZE_PCT = 0.05  # 5% of current_capital per trade
 AUTO_TRADE_MAX_POSITIONS   = 10    # max simultaneous open auto positions

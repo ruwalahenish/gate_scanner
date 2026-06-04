@@ -106,11 +106,36 @@ export interface BacktestTrade {
   exit_date: string | null;
   entry_price: number;
   exit_price: number | null;
+  sl_price: number | null;
+  t1: number | null;
+  t2: number | null;
+  t3: number | null;
+  quantity: number | null;
+  invested_amount: number | null;
   pnl_abs: number | null;
   pnl_pct: number | null;
-  exit_reason: string | null;
+  exit_reason: string | null;   // SL | T1 | T2 | T3 | TRAIL | EOD | null (open)
   holding_days: number | null;
   rr_achieved: number | null;
+  timeframe: string | null;
+  category: string | null;
   backtest_date: string;
   backtest_id: string;
+}
+
+// Status response from GET /api/backtests/{id}
+export interface BacktestStatusResponse {
+  id: string;
+  status: "pending" | "running" | "done" | "failed" | "cancelled";
+  started_at: string;
+  completed_at: string | null;
+  initial_capital: number | null;
+  final_equity: number | null;
+  total_trades: number | null;
+  winning_trades: number | null;
+  win_rate: number | null;
+  cagr: number | null;
+  sharpe_ratio: number | null;
+  max_drawdown: number | null;
+  error_message: string | null;
 }

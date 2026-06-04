@@ -19,8 +19,8 @@ log = structlog.get_logger()
     name="app.tasks.backtest_tasks.run_backtest_task",
     max_retries=1,
     default_retry_delay=60,
-    soft_time_limit=900,
-    time_limit=960,
+    soft_time_limit=1800,
+    time_limit=1860,
     queue="backtests",
 )
 def run_backtest_task(
@@ -30,12 +30,18 @@ def run_backtest_task(
     start_date: str,
     end_date: str,
     initial_capital: float = 1_000_000,
+    investment_per_stock: float | None = None,
 ):
     # asyncpg requires SelectorEventLoop on Windows (Celery defaults to ProactorEventLoop)
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     try:
-        asyncio.run(_run_backtest_async(backtest_id, universe, start_date, end_date, initial_capital))
+        asyncio.run(
+            _run_backtest_async(
+                backtest_id, universe, start_date, end_date,
+                initial_capital, investment_per_stock,
+            )
+        )
     except Exception as exc:
         tb = traceback.format_exc()
         log.error("backtest_failed", backtest_id=backtest_id, error=str(exc), traceback=tb)
@@ -55,6 +61,7 @@ async def _run_backtest_async(
     start_date: str,
     end_date: str,
     initial_capital: float,
+    investment_per_stock: float | None,
 ):
     import asyncpg
     from app.config import get_settings
@@ -91,7 +98,9 @@ async def _run_backtest_async(
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=2) as ex:
             result = await loop.run_in_executor(
-                ex, _run_backtest_sync, universe, start_date, end_date, initial_capital
+                ex,
+                _run_backtest_sync,
+                universe, start_date, end_date, initial_capital, investment_per_stock,
             )
 
         duration = time.perf_counter() - t0
@@ -119,7 +128,11 @@ async def _run_backtest_async(
 
 
 def _run_backtest_sync(
-    universe: list[str], start_date: str, end_date: str, initial_capital: float
+    universe: list[str],
+    start_date: str,
+    end_date: str,
+    initial_capital: float,
+    investment_per_stock: float | None,
 ) -> dict:
     from app.core.backtester.engine import BacktestEngine
     from app.core.backtester.metrics import compute_metrics
@@ -129,12 +142,25 @@ def _run_backtest_sync(
     if not universe:
         universe = get_full_universe(include_midcap=True, include_smallcap=False)
 
-    engine = BacktestEngine(
-        universe=universe,
-        start_date=start_date,
-        end_date=end_date,
-        initial_capital=initial_capital,
-    )
+    # Per-symbol mode: use investment_per_stock as total capital, single position, 100% sizing.
+    # This ensures each trade buys floor(investment_per_stock / entry_price) shares.
+    if investment_per_stock is not None:
+        engine = BacktestEngine(
+            universe=universe,
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=investment_per_stock,
+            position_size_pct=1.0,
+            max_positions=1,
+        )
+    else:
+        engine = BacktestEngine(
+            universe=universe,
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=initial_capital,
+        )
+
     portfolio = engine.run()
     raw = compute_metrics(portfolio)
 
