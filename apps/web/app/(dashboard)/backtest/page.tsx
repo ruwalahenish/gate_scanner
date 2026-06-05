@@ -7,6 +7,7 @@ import {
   LinearProgress, Divider,
 } from "@mui/material";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import StopIcon from "@mui/icons-material/Stop";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine,
@@ -36,6 +37,19 @@ type Trade = {
 };
 
 type EquityPoint = { curve_date: string; equity: number };
+
+type StockStat = {
+  symbol:      string;
+  category:    string;
+  totalTrades: number;
+  wins:        number;
+  winRate:     number;
+  totalPnlAbs: number;
+  avgPnlPct:   number;
+  bestPct:     number;
+  worstPct:    number;
+  avgHoldDays: number;
+};
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
@@ -81,46 +95,76 @@ function MetricCard({
 
 // ── History row ───────────────────────────────────────────────────────────────
 
-function HistoryRow({ bt, onLoad }: { bt: BtResult; onLoad: (id: string) => void }) {
+function HistoryRow({
+  bt, onLoad, onStop,
+}: {
+  bt: BtResult;
+  onLoad: (id: string) => void;
+  onStop?: (id: string) => void;
+}) {
   const totalReturn = bt.final_equity != null
     ? ((bt.final_equity - bt.initial_capital) / bt.initial_capital * 100)
     : null;
   const canLoad = bt.status === "done";
+  const canStop = onStop && (bt.status === "pending" || bt.status === "running");
+  const chipColor =
+    bt.status === "done"      ? "success"
+    : bt.status === "failed"  ? "error"
+    : bt.status === "cancelled" ? "warning"
+    : "default";
   return (
     <Box
-      onClick={() => canLoad && onLoad(bt.id)}
       sx={{
         display: "flex", alignItems: "center", gap: 2, py: 0.75, px: 1,
-        borderRadius: 1, cursor: canLoad ? "pointer" : "default",
-        "&:hover": canLoad ? { bgcolor: "action.hover" } : {},
+        borderRadius: 1,
       }}
     >
-      <Chip
-        label={bt.status} size="small"
-        color={bt.status === "done" ? "success" : bt.status === "failed" ? "error" : "default"}
-        sx={{ minWidth: 68, fontSize: "0.68rem" }}
-      />
-      <Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
-        {bt.start_date} → {bt.end_date}
-      </Typography>
-      <Typography variant="body2">{formatCompact(bt.initial_capital)}</Typography>
-      {totalReturn != null && (
-        <Typography variant="body2" fontWeight={600}
-          color={totalReturn >= 0 ? "success.main" : "error.main"}
-        >
-          {totalReturn >= 0 ? "+" : ""}{totalReturn.toFixed(1)}%
+      <Box
+        onClick={() => canLoad && onLoad(bt.id)}
+        sx={{
+          display: "flex", alignItems: "center", gap: 2, flex: 1,
+          cursor: canLoad ? "pointer" : "default",
+          "&:hover": canLoad ? { bgcolor: "action.hover" } : {},
+          borderRadius: 1, py: 0.25, px: 0.5,
+        }}
+      >
+        <Chip
+          label={bt.status} size="small"
+          color={chipColor as any}
+          sx={{ minWidth: 78, fontSize: "0.68rem" }}
+        />
+        <Typography variant="body2" color="text.secondary" sx={{ minWidth: 160 }}>
+          {bt.start_date} → {bt.end_date}
         </Typography>
+        <Typography variant="body2">{formatCompact(bt.initial_capital)}</Typography>
+        {totalReturn != null && (
+          <Typography variant="body2" fontWeight={600}
+            color={totalReturn >= 0 ? "success.main" : "error.main"}
+          >
+            {totalReturn >= 0 ? "+" : ""}{totalReturn.toFixed(1)}%
+          </Typography>
+        )}
+        <Typography variant="caption" color="text.secondary" sx={{ ml: "auto", whiteSpace: "nowrap" }}>
+          {bt.total_trades ?? "—"} trades · {bt.started_at?.slice(0, 10)}
+        </Typography>
+      </Box>
+      {canStop && (
+        <Button
+          size="small" variant="outlined" color="error"
+          startIcon={<StopIcon sx={{ fontSize: 14 }} />}
+          onClick={(e) => { e.stopPropagation(); onStop(bt.id); }}
+          sx={{ minWidth: 80, fontSize: "0.7rem", py: 0.25 }}
+        >
+          Stop
+        </Button>
       )}
-      <Typography variant="caption" color="text.secondary" sx={{ ml: "auto", whiteSpace: "nowrap" }}>
-        {bt.total_trades ?? "—"} trades · {bt.started_at?.slice(0, 10)}
-      </Typography>
     </Box>
   );
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MIN_CAPITAL          = 10_000;
+const MIN_CAPITAL          = 5_000;
 const MAX_BACKTEST_ATTEMPTS = 240;   // 240 × 5s base = 20 min ceiling
 const BACKTEST_HISTORY_LIMIT = 5;
 const MAX_TRADES_DISPLAYED   = 100;
@@ -145,6 +189,9 @@ export default function BacktestPage() {
   const [error, setError]         = useState("");
   const [elapsed, setElapsed]     = useState(0);
   const [history, setHistory]     = useState<BtResult[]>([]);
+  const [activeBacktestId, setActiveBacktestId] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
   const pollRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -180,6 +227,7 @@ export default function BacktestPage() {
 
     setRunning(true); setResult(null);
     setEquityCurve([]); setTrades([]); setElapsed(0);
+    setActiveBacktestId(null); setSelectedSymbol(null);
     timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
     try {
       const universeList = universe.trim()
@@ -189,6 +237,7 @@ export default function BacktestPage() {
         start_date: startDate, end_date: endDate || null,
         initial_capital: cap, universe: universeList,
       });
+      setActiveBacktestId(backtest_id);
       enqueueSnackbar("Backtest queued — this may take 5–15 minutes for large universes", { variant: "info" });
       let attempts = 0;
       const schedulePoll = () => {
@@ -203,16 +252,21 @@ export default function BacktestPage() {
             if (bt.status === "done") {
               clearInterval(timerRef.current!);
               await loadBacktest(backtest_id);
-              setRunning(false);
+              setRunning(false); setActiveBacktestId(null);
               getJson(`${API_URL}/api/backtests`).then(setHistory).catch(() => {});
               enqueueSnackbar("Backtest complete!", { variant: "success" });
+            } else if (bt.status === "cancelled") {
+              clearInterval(timerRef.current!);
+              setRunning(false); setActiveBacktestId(null);
+              getJson(`${API_URL}/api/backtests`).then(setHistory).catch(() => {});
+              enqueueSnackbar("Backtest stopped.", { variant: "warning" });
             } else if (bt.status === "failed" || attempts > MAX_BACKTEST_ATTEMPTS) {
               clearInterval(timerRef.current!);
               const msg = bt.status === "failed"
                 ? (bt.error_message ?? "Backtest failed — check the worker logs for details")
                 : "Backtest is taking longer than expected (>20 min). It may still be running — check Recent Backtests later.";
               setError(msg);
-              setRunning(false);
+              setRunning(false); setActiveBacktestId(null);
             } else {
               schedulePoll();
             }
@@ -225,7 +279,24 @@ export default function BacktestPage() {
       schedulePoll();
     } catch (err) {
       clearInterval(timerRef.current!);
-      setError(String(err)); setRunning(false);
+      setError(String(err)); setRunning(false); setActiveBacktestId(null);
+    }
+  };
+
+  const handleStop = async (id: string) => {
+    if (cancelling) return;
+    setCancelling(true);
+    try {
+      await postJson(`${API_URL}/api/backtests/${id}/cancel`, {});
+      if (pollRef.current) clearTimeout(pollRef.current);
+      if (timerRef.current) clearInterval(timerRef.current);
+      setRunning(false); setActiveBacktestId(null);
+      getJson(`${API_URL}/api/backtests`).then(setHistory).catch(() => {});
+      enqueueSnackbar("Backtest stopped.", { variant: "warning" });
+    } catch {
+      enqueueSnackbar("Could not stop backtest — it may have already finished.", { variant: "info" });
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -247,6 +318,41 @@ export default function BacktestPage() {
   const universeCount = universe.trim()
     ? universe.split(",").filter(s => s.trim()).length
     : null;
+
+  // Per-stock breakdown computed from the trades array
+  const perStockStats: StockStat[] = (() => {
+    if (!trades.length) return [];
+    const map = new Map<string, { trades: Trade[] }>();
+    for (const t of trades) {
+      if (!map.has(t.symbol)) map.set(t.symbol, { trades: [] });
+      map.get(t.symbol)!.trades.push(t);
+    }
+    return Array.from(map.entries()).map(([symbol, { trades: st }]) => {
+      const wins = st.filter(t => (t.pnl_abs ?? 0) > 0).length;
+      const pnlVals = st.map(t => t.pnl_abs ?? 0);
+      const pctVals = st.map(t => (t.pnl_pct ?? 0) * 100);
+      const holdVals = st.map(t => t.holding_days ?? 0).filter(v => v >= 0);
+      const catCounts: Record<string, number> = {};
+      st.forEach(t => { if (t.category) catCounts[t.category] = (catCounts[t.category] ?? 0) + 1; });
+      const category = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—";
+      return {
+        symbol,
+        category,
+        totalTrades: st.length,
+        wins,
+        winRate: Math.round((wins / st.length) * 100),
+        totalPnlAbs: pnlVals.reduce((s, v) => s + v, 0),
+        avgPnlPct: pctVals.length ? pctVals.reduce((s, v) => s + v, 0) / pctVals.length : 0,
+        bestPct: pctVals.length ? Math.max(...pctVals) : 0,
+        worstPct: pctVals.length ? Math.min(...pctVals) : 0,
+        avgHoldDays: holdVals.length ? holdVals.reduce((s, v) => s + v, 0) / holdVals.length : 0,
+      } satisfies StockStat;
+    }).sort((a, b) => b.totalPnlAbs - a.totalPnlAbs);
+  })();
+
+  const filteredTrades = selectedSymbol
+    ? trades.filter(t => t.symbol === selectedSymbol)
+    : trades;
 
   return (
     <Box>
@@ -295,7 +401,7 @@ export default function BacktestPage() {
             </Grid>
             <Grid item xs={12} sm={2}>
               <Button
-                variant="contained" fullWidth onClick={handleRun} disabled={running}
+                variant="contained" fullWidth onClick={handleRun} disabled={running || cancelling}
                 startIcon={running ? <CircularProgress size={16} color="inherit" /> : <PlayArrowIcon />}
                 sx={{ height: 40 }}
               >
@@ -310,13 +416,26 @@ export default function BacktestPage() {
       {running && (
         <Card sx={{ mb: 2 }}>
           <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
-            <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
               <Typography variant="body2" color="text.secondary">
                 Fetching data · computing signals · running walk-forward engine…
               </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "nowrap", ml: 2 }}>
-                {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")} elapsed
-              </Typography>
+              <Box display="flex" alignItems="center" gap={1.5} ml={2}>
+                <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                  {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")} elapsed
+                </Typography>
+                {activeBacktestId && (
+                  <Button
+                    size="small" variant="outlined" color="error"
+                    startIcon={cancelling ? <CircularProgress size={12} color="inherit" /> : <StopIcon sx={{ fontSize: 16 }} />}
+                    onClick={() => handleStop(activeBacktestId)}
+                    disabled={cancelling}
+                    sx={{ whiteSpace: "nowrap" }}
+                  >
+                    Stop Scan
+                  </Button>
+                )}
+              </Box>
             </Box>
             <LinearProgress variant="indeterminate" />
           </CardContent>
@@ -327,8 +446,8 @@ export default function BacktestPage() {
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError("")}>{error}</Alert>
       )}
 
-      {/* ── History (idle, no result) ──────────────────────────────────────── */}
-      {!running && !result && history.length > 0 && (
+      {/* ── History (always shown unless a fresh result just loaded) ─────── */}
+      {!result && history.length > 0 && (
         <Card sx={{ mb: 2 }}>
           <CardContent sx={{ pb: "12px !important" }}>
             <Typography variant="subtitle2" mb={0.5}>Recent Backtests</Typography>
@@ -336,7 +455,7 @@ export default function BacktestPage() {
               Click a completed run to reload its results
             </Typography>
             {history.slice(0, BACKTEST_HISTORY_LIMIT).map(bt => (
-              <HistoryRow key={bt.id} bt={bt} onLoad={loadBacktest} />
+              <HistoryRow key={bt.id} bt={bt} onLoad={loadBacktest} onStop={handleStop} />
             ))}
           </CardContent>
         </Card>
@@ -455,6 +574,99 @@ export default function BacktestPage() {
             </Card>
           )}
 
+          {/* Per Stock Results */}
+          {perStockStats.length > 0 && (
+            <Card sx={{ mb: 2 }}>
+              <CardContent sx={{ pb: "12px !important" }}>
+                <Box display="flex" alignItems="center" gap={1} mb={1}>
+                  <Typography variant="subtitle2">Per Stock Results</Typography>
+                  <Chip label={`${perStockStats.length} stocks`} size="small" />
+                  {selectedSymbol && (
+                    <Chip
+                      label={`Filtered: ${selectedSymbol}`}
+                      size="small"
+                      color="primary"
+                      onDelete={() => setSelectedSymbol(null)}
+                      sx={{ fontSize: "0.68rem" }}
+                    />
+                  )}
+                  <Typography variant="caption" color="text.secondary" sx={{ ml: "auto" }}>
+                    Click a row to filter the trade list
+                  </Typography>
+                </Box>
+                <TableContainer sx={{ maxHeight: 320 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        {["Symbol", "Category", "Trades", "Wins", "Win Rate", "Total P&L ₹", "Avg P&L %", "Best %", "Worst %", "Avg Hold"].map(h => (
+                          <TableCell
+                            key={h}
+                            sx={{ bgcolor: "background.paper", color: "text.secondary", fontSize: "0.72rem", whiteSpace: "nowrap" }}
+                          >
+                            {h}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {perStockStats.map(s => {
+                        const isSelected = selectedSymbol === s.symbol;
+                        const rowBg = isSelected
+                          ? "rgba(99,102,241,0.12)"
+                          : s.totalPnlAbs >= 0
+                            ? "rgba(34,197,94,0.04)"
+                            : "rgba(239,68,68,0.04)";
+                        return (
+                          <TableRow
+                            key={s.symbol}
+                            hover
+                            onClick={() => setSelectedSymbol(isSelected ? null : s.symbol)}
+                            sx={{ cursor: "pointer", bgcolor: rowBg,
+                              ...(isSelected && { outline: "1px solid rgba(99,102,241,0.4)" }) }}
+                          >
+                            <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>{s.symbol}</TableCell>
+                            <TableCell>
+                              <Chip label={s.category} size="small" variant="outlined" sx={{ fontSize: "0.65rem", height: 18 }} />
+                            </TableCell>
+                            <TableCell sx={{ fontSize: "0.75rem" }}>{s.totalTrades}</TableCell>
+                            <TableCell sx={{ fontSize: "0.75rem", color: "success.main" }}>{s.wins}</TableCell>
+                            <TableCell>
+                              <Typography variant="inherit" fontSize="0.75rem" fontWeight={600}
+                                color={s.winRate >= 50 ? "success.main" : "error.main"}>
+                                {s.winRate}%
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="inherit" fontSize="0.75rem" fontWeight={600}
+                                color={s.totalPnlAbs >= 0 ? "success.main" : "error.main"}>
+                                {s.totalPnlAbs >= 0 ? "+" : ""}{formatPrice(s.totalPnlAbs)}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="inherit" fontSize="0.75rem"
+                                color={s.avgPnlPct >= 0 ? "success.main" : "error.main"}>
+                                {s.avgPnlPct >= 0 ? "+" : ""}{s.avgPnlPct.toFixed(1)}%
+                              </Typography>
+                            </TableCell>
+                            <TableCell sx={{ fontSize: "0.75rem", color: "success.main" }}>
+                              +{s.bestPct.toFixed(1)}%
+                            </TableCell>
+                            <TableCell sx={{ fontSize: "0.75rem", color: "error.main" }}>
+                              {s.worstPct.toFixed(1)}%
+                            </TableCell>
+                            <TableCell sx={{ fontSize: "0.72rem", color: "text.secondary" }}>
+                              {s.avgHoldDays.toFixed(0)}d
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Equity curve */}
           {equityCurve.length > 0 && (
             <Card sx={{ mb: 2 }}>
@@ -505,10 +717,22 @@ export default function BacktestPage() {
           {trades.length > 0 ? (
             <Card>
               <CardContent>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-                  <Typography variant="subtitle2">Trades</Typography>
-                  <Chip label={trades.length} size="small" />
-                  {trades.length > MAX_TRADES_DISPLAYED && (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1, flexWrap: "wrap" }}>
+                  <Typography variant="subtitle2">
+                    {selectedSymbol ? `Trades — ${selectedSymbol}` : "Trades"}
+                  </Typography>
+                  <Chip label={filteredTrades.length} size="small" />
+                  {selectedSymbol && (
+                    <Chip
+                      label="Clear filter"
+                      size="small"
+                      variant="outlined"
+                      onDelete={() => setSelectedSymbol(null)}
+                      onClick={() => setSelectedSymbol(null)}
+                      sx={{ fontSize: "0.68rem" }}
+                    />
+                  )}
+                  {filteredTrades.length > MAX_TRADES_DISPLAYED && (
                     <Typography variant="caption" color="text.secondary">
                       (showing first {MAX_TRADES_DISPLAYED})
                     </Typography>
@@ -529,7 +753,7 @@ export default function BacktestPage() {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {trades.slice(0, MAX_TRADES_DISPLAYED).map(t => {
+                      {filteredTrades.slice(0, MAX_TRADES_DISPLAYED).map(t => {
                         const isWin  = (t.pnl_abs ?? 0) >= 0;
                         const pnlPct = t.pnl_pct != null ? t.pnl_pct * 100 : null;
                         return (

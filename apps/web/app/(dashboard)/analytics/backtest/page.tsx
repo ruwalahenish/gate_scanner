@@ -120,7 +120,7 @@ function HistoryRow({ bt, onLoad }: { bt: BtResult; onLoad: (id: string) => void
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MIN_CAPITAL          = 10_000;
+const MIN_CAPITAL          = 5_000;
 const MAX_BACKTEST_ATTEMPTS = 240;   // 240 × 5s base = 20 min ceiling
 const BACKTEST_HISTORY_LIMIT = 5;
 const MAX_TRADES_DISPLAYED   = 100;
