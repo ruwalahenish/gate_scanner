@@ -13,11 +13,15 @@ import {
   scanFailed,
   postProcessReceived,
   priceUpdated,
+  backtestBatchScanning,
+  backtestStockComplete,
+  type LiveStockResult,
 } from "@/store/slices/wsSlice";
 import { scannerApi } from "@/store/api/scannerApi";
 import { paperTradingApi } from "@/store/api/paperTradingApi";
 import { watchlistApi } from "@/store/api/watchlistApi";
 import { stockMasterApi } from "@/store/api/stockMasterApi";
+import { backtestApi } from "@/store/api/backtestApi";
 import type { AppDispatch } from "@/store";
 
 export function useWebSocket() {
@@ -148,7 +152,22 @@ function handleMessage(
       );
       break;
 
+    // ── Backtest streaming events ────────────────────────────────────────────
+
+    case "backtest.batch_scanning":
+      dispatch(backtestBatchScanning({
+        symbols:   msg.payload.symbols   as string[],
+        completed: msg.payload.completed as number,
+        total:     msg.payload.total     as number,
+      }));
+      break;
+
+    case "backtest.stock_complete":
+      dispatch(backtestStockComplete(msg.payload as unknown as LiveStockResult));
+      break;
+
     case "backtest.complete":
+      dispatch(backtestApi.util.invalidateTags(["Backtest"]));
       enqueueSnackbar("Backtest complete!", { variant: "success" });
       break;
   }

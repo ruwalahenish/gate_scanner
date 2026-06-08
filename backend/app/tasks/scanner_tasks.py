@@ -131,18 +131,21 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
                 duration_sec=round(duration, 2),
             )
 
-        await _publish("scan:complete", {
-            "type": "scan.complete",
-            "payload": {"scan_id": scan_id, "signals_count": total_inserted},
-            "timestamp": _now(),
-        })
-        # Bust the server-side signals list cache so the next request hits the DB
+        # Bust the server-side signals list cache BEFORE publishing scan.complete so
+        # that the browser's immediate refetch (triggered by the WS event) always hits
+        # the DB instead of a stale 30-second Redis cache.
         try:
             keys = await redis.keys("signals:list:*")
             if keys:
                 await redis.delete(*keys)
         except Exception:
             pass
+
+        await _publish("scan:complete", {
+            "type": "scan.complete",
+            "payload": {"scan_id": scan_id, "signals_count": total_inserted},
+            "timestamp": _now(),
+        })
         log.info("scan_completed", scan_id=scan_id, signals=total_inserted, duration=round(duration, 1))
 
         # ── Post-scan automation ─────────────────────────────────────────

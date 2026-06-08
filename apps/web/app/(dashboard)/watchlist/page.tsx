@@ -2,7 +2,7 @@
 import { useState } from "react";
 import {
   Box, Card, Typography, Chip, Tab, Tabs, IconButton, Collapse,
-  Stack, Divider, Skeleton, Tooltip,
+  Stack, Divider, Skeleton, Tooltip, CircularProgress,
 } from "@mui/material";
 import {
   Delete, ExpandMore, ExpandLess,
@@ -114,12 +114,19 @@ function HistoryTimeline({ symbol }: { symbol: string }) {
 
 const GRID = "32px 110px 1fr 130px 90px 85px 85px 36px";
 
-function WatchlistRow({ item, onRemove }: {
-  item: WatchlistItem;
-  onRemove: (sym: string) => void;
-}) {
+function WatchlistRow({ item }: { item: WatchlistItem }) {
   const [expanded, setExpanded] = useState(false);
+  const [removeFromWatchlist, { isLoading: isRemoving }] = useRemoveFromWatchlistMutation();
   const meta = STATUS_META[item.status];
+
+  const handleRemove = async () => {
+    try {
+      await removeFromWatchlist(item.symbol).unwrap();
+      enqueueSnackbar(`${item.symbol} removed from watchlist`, { variant: "info" });
+    } catch {
+      enqueueSnackbar("Remove failed", { variant: "error" });
+    }
+  };
 
   return (
     <>
@@ -184,9 +191,13 @@ function WatchlistRow({ item, onRemove }: {
 
         {/* Remove */}
         <Tooltip title="Remove from watchlist">
-          <IconButton size="small" onClick={() => onRemove(item.symbol)} sx={{ p: 0.3 }}>
-            <Delete fontSize="small" sx={{ color: "error.dark", fontSize: 16 }} />
-          </IconButton>
+          <span>
+            <IconButton size="small" onClick={handleRemove} disabled={isRemoving} sx={{ p: 0.3 }}>
+              {isRemoving
+                ? <CircularProgress size={14} sx={{ color: "error.dark" }} />
+                : <Delete fontSize="small" sx={{ color: "error.dark", fontSize: 16 }} />}
+            </IconButton>
+          </span>
         </Tooltip>
       </Box>
 
@@ -240,16 +251,6 @@ export default function WatchlistPage() {
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
 
   const { data: allItems, isLoading } = useGetWatchlistQuery({});
-  const [removeFromWatchlist] = useRemoveFromWatchlistMutation();
-
-  const handleRemove = async (symbol: string) => {
-    try {
-      await removeFromWatchlist(symbol).unwrap();
-      enqueueSnackbar(`${symbol} removed from watchlist`, { variant: "info" });
-    } catch {
-      enqueueSnackbar("Remove failed", { variant: "error" });
-    }
-  };
 
   // Filter by tab
   const items = activeTab === "all"
@@ -338,7 +339,7 @@ export default function WatchlistPage() {
           <>
             <TableHeaders />
             {items.map((item) => (
-              <WatchlistRow key={item.id} item={item} onRemove={handleRemove} />
+              <WatchlistRow key={item.id} item={item} />
             ))}
           </>
         )}

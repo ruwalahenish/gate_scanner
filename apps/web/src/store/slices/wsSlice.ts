@@ -20,6 +20,35 @@ export interface CompletionSummary {
   duration_sec: number;
 }
 
+export interface LiveStockResult {
+  symbol: string;
+  status: "done" | "failed";
+  total_trades: number;
+  winning_trades: number;
+  win_rate: number;
+  total_pnl_abs: number;
+  avg_pnl_pct: number;
+  best_trade_pct: number;
+  worst_trade_pct: number;
+  avg_holding_days: number;
+  category: string | null;
+  error?: string;
+  completed: number;
+  total: number;
+}
+
+interface BacktestLiveProgress {
+  completed: number;
+  total: number;
+  currentBatch: string[];
+}
+
+interface BacktestLiveState {
+  backtest_id: string | null;
+  stockResults: LiveStockResult[];
+  progress: BacktestLiveProgress | null;
+}
+
 interface WSState {
   connected: boolean;
   lastScanId: string | null;
@@ -30,6 +59,7 @@ interface WSState {
   lastPostProcess: PostProcessPayload | null;
   lastCompletionSummary: CompletionSummary | null;
   lastPrices: Record<string, number>;
+  backtestLive: BacktestLiveState;
 }
 
 const initialState: WSState = {
@@ -42,6 +72,11 @@ const initialState: WSState = {
   lastPostProcess: null,
   lastCompletionSummary: null,
   lastPrices: {},
+  backtestLive: {
+    backtest_id: null,
+    stockResults: [],
+    progress: null,
+  },
 };
 
 const BUY_CATS = new Set(["INVESTMENT", "SWING", "POSITIONAL"]);
@@ -106,6 +141,46 @@ export const wsSlice = createSlice({
     priceUpdated: (state, action: PayloadAction<{ symbol: string; price: number }>) => {
       state.lastPrices[action.payload.symbol] = action.payload.price;
     },
+    // ── Backtest live-streaming actions ──────────────────────────────────────
+    backtestLiveReset: (state, action: PayloadAction<string>) => {
+      state.backtestLive = {
+        backtest_id: action.payload,
+        stockResults: [],
+        progress: null,
+      };
+    },
+    backtestLiveLoad: (state, action: PayloadAction<{ backtest_id: string; results: LiveStockResult[] }>) => {
+      state.backtestLive = {
+        backtest_id: action.payload.backtest_id,
+        stockResults: action.payload.results,
+        progress: null,
+      };
+    },
+    backtestBatchScanning: (
+      state,
+      action: PayloadAction<{ symbols: string[]; completed: number; total: number }>
+    ) => {
+      state.backtestLive.progress = {
+        completed:    action.payload.completed,
+        total:        action.payload.total,
+        currentBatch: action.payload.symbols,
+      };
+    },
+    backtestStockComplete: (state, action: PayloadAction<LiveStockResult>) => {
+      const idx = state.backtestLive.stockResults.findIndex(
+        r => r.symbol === action.payload.symbol
+      );
+      if (idx >= 0) {
+        state.backtestLive.stockResults[idx] = action.payload;
+      } else {
+        state.backtestLive.stockResults.push(action.payload);
+      }
+      state.backtestLive.progress = {
+        completed:    action.payload.completed,
+        total:        action.payload.total,
+        currentBatch: state.backtestLive.progress?.currentBatch ?? [],
+      };
+    },
   },
 });
 
@@ -119,4 +194,8 @@ export const {
   scanFailed,
   postProcessReceived,
   priceUpdated,
+  backtestLiveReset,
+  backtestLiveLoad,
+  backtestBatchScanning,
+  backtestStockComplete,
 } = wsSlice.actions;

@@ -137,8 +137,20 @@ def ensure_redis() -> None:
         sys.exit(1)
 
     log("info", "Starting Redis via Docker…")
-    # Remove any stale container silently
-    subprocess.run(["docker", "rm", "-f", "gate-redis"], capture_output=True)
+
+    # Try to restart an existing stopped container first (avoids destroying task queues)
+    start_result = subprocess.run(["docker", "start", "gate-redis"], capture_output=True)
+    if start_result.returncode == 0:
+        _redis_ours = True
+        for _ in range(16):
+            if _redis_alive():
+                log("redis", f"{c('ok')}Ready on :6379 (existing container restarted){c('reset')}")
+                return
+            time.sleep(0.5)
+        print(f"{c('err')}✗  Redis container restarted but port is not open after 8 s.{c('reset')}")
+        sys.exit(1)
+
+    # Container does not exist — create a fresh one
     result = subprocess.run([
         "docker", "run", "-d",
         "--name", "gate-redis",
@@ -299,6 +311,7 @@ def main() -> None:
             "--loglevel=info",
             "--without-gossip",
             "--without-mingle",
+            "-Q", "scans,backtests,admin,default",
         ]
         # billiard prefork pool uses POSIX shared memory that doesn't work on Windows
         if IS_WIN:

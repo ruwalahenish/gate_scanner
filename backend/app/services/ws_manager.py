@@ -25,6 +25,7 @@ CHANNELS = [
     "scan:batch",
     "scan:post_process",
     "price:update",
+    "backtest:progress",
 ]
 
 

@@ -53,7 +53,11 @@
       "PowerShell(python -c \"import sys; print\\(sys.executable\\)\")",
       "Bash(Remove-Item -Path \"d:\\\\gate_scanner\\\\backend\\\\app\\\\routers\\\\alerts.py\", \"d:\\\\gate_scanner\\\\backend\\\\app\\\\services\\\\alert_engine.py\", \"d:\\\\gate_scanner\\\\backend\\\\app\\\\queries\\\\alerts.py\", \"d:\\\\gate_scanner\\\\backend\\\\app\\\\models\\\\alert.py\" -Force)",
       "Bash(python -c \"from app.main import app; print\\('OK — app loaded'\\)\")",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('backend/app/tasks/backtest_tasks.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(python -c \"import redis; r = redis.from_url\\('redis://localhost:6379/0'\\); print\\('Redis queues:', r.llen\\('backtests'\\), 'tasks in backtests queue'\\); print\\('celery@keys:', [k.decode\\(\\) for k in r.keys\\('celery*'\\)][:10]\\)\")",
+      "PowerShell(docker start gate-redis 2>&1)",
+      "PowerShell(python -c \"import redis; r = redis.from_url\\('redis://localhost:6379/0'\\); r.ping\\(\\); print\\('Redis: ONLINE'\\)\" 2>&1)"
     ],
     "additionalDirectories": [
       "\\mnt\\d\\gate-scanner",

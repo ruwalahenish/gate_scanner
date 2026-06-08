@@ -361,7 +361,7 @@ export default function ScannerPage() {
   const currentScanId         = useSelector((s: RootState) => s.ws.currentScanId);
   const streamingRaw          = useSelector((s: RootState) => s.ws.streamingSignals);
 
-  const [activeTab, setActiveTab]   = useState<FilterTab>("BUY");
+  const [activeTab, setActiveTab]   = useState<FilterTab>("ALL");
   const [scanMode, setScanMode]     = useState("nifty500");
   const [page, setPage]             = useState(1);
 
@@ -609,23 +609,34 @@ export default function ScannerPage() {
         )}
 
         {/* ── Column headers + signal rows ────────────────────────────────── */}
-        {!signalsError && displaySignals.length === 0 && !isFetching && !isScanning ? (
-          <EmptyState
-            title={
-              activeTab === "BUY"
-                ? "No BUY opportunities in the latest scan"
-                : activeTab === "WATCH"
-                ? "No stocks in Watch status"
-                : latestScan
-                ? "No signals match the selected filter"
-                : "No scan has been run yet"
-            }
-            description={
-              !latestScan
-                ? "Select a universe and click Run Scan to start"
-                : "Try a different filter or run a new scan"
-            }
-          />
+        {!signalsError && displaySignals.length === 0 && !isFetching ? (
+          isScanning ? (
+            <EmptyState
+              title="Scan in progress — no signals yet"
+              description={
+                activeTab === "ALL"
+                  ? "Results will appear here as each batch of stocks completes"
+                  : `No ${activeTab === "BUY" ? "BUY" : activeTab === "WATCH" ? "Watch" : "No Action"} signals found yet — switch to the ALL tab to see everything streaming in`
+              }
+            />
+          ) : (
+            <EmptyState
+              title={
+                activeTab === "BUY"
+                  ? "No BUY opportunities in the latest scan"
+                  : activeTab === "WATCH"
+                  ? "No stocks in Watch status"
+                  : latestScan
+                  ? "No signals match the selected filter"
+                  : "No scan has been run yet"
+              }
+              description={
+                !latestScan
+                  ? "Select a universe and click Run Scan to start"
+                  : "Try a different filter or run a new scan"
+              }
+            />
+          )
         ) : !signalsError ? (
           <SignalTable
             signals={displaySignals}

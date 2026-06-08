@@ -2,7 +2,7 @@
 import { useState } from "react";
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Button, Typography, Box, Divider, Alert,
+  TextField, Button, Typography, Box, Divider, Alert, CircularProgress,
 } from "@mui/material";
 import { useSelector, useDispatch } from "react-redux";
 import { enqueueSnackbar } from "notistack";
@@ -118,6 +118,7 @@ export function BuyModal({ prefillSignal }: BuyModalProps) {
           color="success"
           onClick={handleSubmit}
           disabled={!isValid || isLoading}
+          startIcon={isLoading ? <CircularProgress size={14} color="inherit" /> : undefined}
         >
           {isLoading ? "Buying…" : "Confirm Buy"}
         </Button>

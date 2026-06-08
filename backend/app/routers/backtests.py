@@ -90,10 +90,34 @@ async def get_backtest(
 @router.get("/{backtest_id}/trades")
 async def get_backtest_trades(
     backtest_id: UUID,
+    symbol: Optional[str] = None,
+    conn: asyncpg.Connection = Depends(db_conn),
+):
+    if symbol:
+        rows = await conn.fetch(
+            "SELECT * FROM backtest_trades WHERE backtest_id=$1 AND symbol=$2 ORDER BY entry_date",
+            backtest_id, symbol.upper(),
+        )
+    else:
+        rows = await conn.fetch(
+            "SELECT * FROM backtest_trades WHERE backtest_id=$1 ORDER BY entry_date", backtest_id
+        )
+    return [_serialize(r) for r in rows]
+
+
+@router.get("/{backtest_id}/stock-results")
+async def get_stock_results(
+    backtest_id: UUID,
     conn: asyncpg.Connection = Depends(db_conn),
 ):
     rows = await conn.fetch(
-        "SELECT * FROM backtest_trades WHERE backtest_id=$1 ORDER BY entry_date", backtest_id
+        """SELECT symbol, status, total_trades, winning_trades, win_rate,
+                  total_pnl_abs, avg_pnl_pct, best_trade_pct, worst_trade_pct,
+                  avg_holding_days, category, error_message, completed_at
+           FROM backtest_stock_results
+           WHERE backtest_id=$1
+           ORDER BY total_pnl_abs DESC NULLS LAST""",
+        backtest_id,
     )
     return [_serialize(r) for r in rows]
 

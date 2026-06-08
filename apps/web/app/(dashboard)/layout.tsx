@@ -1,10 +1,12 @@
 import { Box } from "@mui/material";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopBar } from "@/components/layout/TopBar";
+import { NavigationProgress } from "@/components/layout/NavigationProgress";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "background.default" }}>
+      <NavigationProgress />
       <Sidebar />
       <Box
         component="main"
