@@ -1,4 +1,4 @@
-# GATE Scanner — Full Deployment Guide
+# GATE Scanner — Full Deployment Guide 
 
 > **Cost: $0/month · No credit card required anywhere**
 >
