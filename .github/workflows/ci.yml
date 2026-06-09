@@ -151,8 +151,8 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_USERNAME: ${{ secrets.HF_USERNAME }}
         run: |
-          git config user.email "ci@github.com"
-          git config user.name "GitHub Actions"
+          git config --global user.email "ci@github.com"
+          git config --global user.name "GitHub Actions"
 
           # Clone the HF Space repo into a temp directory
           git clone https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/gate-backend hf_space
