@@ -89,11 +89,11 @@ async def test_portfolio_summary_returns_dict():
         "win_rate": 0.0,
     }
 
-    with patch("app.routers.portfolio.q.get_portfolio_summary", return_value=summary), \
-         patch("app.routers.portfolio.q.get_open_positions", return_value=[]):
+    with patch("app.routers.paper_trading.q.get_portfolio_summary", return_value=summary), \
+         patch("app.routers.paper_trading.q.get_open_positions", return_value=[]):
         app = _make_app_client(conn, redis)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            resp = await c.get("/api/portfolio/summary")
+            resp = await c.get("/api/paper-trading/summary")
 
     assert resp.status_code == 200
     assert "current_capital" in resp.json()
