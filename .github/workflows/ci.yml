@@ -160,6 +160,11 @@ jobs:
           # Overwrite Space contents with the current backend/ directory
           rsync -av --delete \
             --exclude='.git' \
+            --exclude='celerybeat-schedule*' \
+            --exclude='tests/' \
+            --exclude='*.pyc' \
+            --exclude='__pycache__/' \
+            --exclude='.gate_cache/' \
             backend/ hf_space/
 
           cd hf_space
