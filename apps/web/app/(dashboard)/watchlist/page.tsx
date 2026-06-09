@@ -6,7 +6,7 @@ import {
 } from "@mui/material";
 import {
   Delete, ExpandMore, ExpandLess,
-  FiberManualRecord, TrendingUp, GpsFixed, Block, CheckCircle,
+  FiberManualRecord, TrendingUp,
 } from "@mui/icons-material";
 import { enqueueSnackbar } from "notistack";
 import {
@@ -16,7 +16,7 @@ import {
 } from "@/store/api/watchlistApi";
 import { GATEBar } from "@/components/ui/GATEBar";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { formatIST, formatPrice } from "@/lib/formatters";
+import { formatIST } from "@/lib/formatters";
 import type { WatchlistItem, WatchlistHistoryEvent, WatchlistStatus } from "@/types/watchlist";
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -21,7 +21,6 @@ import type { AppDispatch } from "@/store";
 import {
   backtestLiveReset,
   backtestLiveLoad,
-  type LiveStockResult,
 } from "@/store/slices/wsSlice";
 
 // ── Types ─────────────────────────────────────────────────────────────────────

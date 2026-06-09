@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   Box, Typography, Grid, Chip, Button, Tabs, Tab,
   Select, MenuItem, FormControl, Stack, Divider,
-  CircularProgress, Paper, Tooltip, TextField,
+  CircularProgress, Paper, TextField,
   InputAdornment, Alert,
 } from "@mui/material";
 import { DataGrid, type GridColDef } from "@mui/x-data-grid";
@@ -13,7 +13,6 @@ import {
   PlayArrow, Stop,
 } from "@mui/icons-material";
 import { GATEChart } from "@/components/domain/GATEChart";
-import { GATEBar } from "@/components/ui/GATEBar";
 import { CategoryChip } from "@/components/ui/CategoryChip";
 import { StatCard } from "@/components/ui/StatCard";
 import { formatPrice, formatPct, formatRR, formatScore, formatIST, formatCompact } from "@/lib/formatters";

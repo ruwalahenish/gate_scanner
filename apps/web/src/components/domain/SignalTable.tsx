@@ -1,12 +1,12 @@
 "use client";
 import { useState } from "react";
 import {
-  Box, Chip, Typography, Tooltip, IconButton, Collapse,
+  Box, Chip, Typography, IconButton, Collapse,
   Paper, Grid, Divider, LinearProgress,
 } from "@mui/material";
 import { ExpandMore, ExpandLess, CheckCircle, Cancel } from "@mui/icons-material";
 import { GATEBar } from "@/components/ui/GATEBar";
-import { formatPrice, formatRR, formatScore } from "@/lib/formatters";
+import { formatPrice, formatRR } from "@/lib/formatters";
 import type { Signal, SignalCategory, DisplayStatus } from "@/types/signal";
 
 // ─────────────────────────────────────────────────────────────────────────────

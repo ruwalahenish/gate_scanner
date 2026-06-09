@@ -39,7 +39,7 @@ export const portfolioApi = createApi({
       }),
       invalidatesTags: ["Position", "Summary"],
       // Optimistic update: add a placeholder position immediately
-      onQueryStarted: async (arg, { dispatch, queryFulfilled, getState }) => {
+      onQueryStarted: async (arg, { dispatch, queryFulfilled }) => {
         const patch = dispatch(
           portfolioApi.util.updateQueryData("getPositions", undefined, (draft) => {
             draft.push({

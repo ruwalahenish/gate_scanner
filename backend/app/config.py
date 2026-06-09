@@ -1,6 +1,8 @@
+import json
 from pathlib import Path
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Walk up: app/ → backend/ → project root
 _ENV_FILE = Path(__file__).parent.parent.parent / ".env"
@@ -17,6 +19,16 @@ class Settings(BaseSettings):
 
     # CORS
     allowed_origins: list[str] = ["http://localhost:3000"]
+
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def parse_allowed_origins(cls, v: object) -> object:
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return [o.strip() for o in v.split(",") if o.strip()]
+        return v
 
     # Telegram (optional — leave empty to disable)
     telegram_bot_token: str = ""

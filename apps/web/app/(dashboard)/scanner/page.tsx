@@ -20,9 +20,7 @@ import {
   useTriggerScanMutation,
   useStopScanMutation,
 } from "@/store/api/scannerApi";
-import { scannerApi } from "@/store/api/scannerApi";
-import { stockMasterApi } from "@/store/api/stockMasterApi";
-import { scanStarted, scanFailed, clearStreamingSignals } from "@/store/slices/wsSlice";
+import { scanStarted, scanFailed } from "@/store/slices/wsSlice";
 import { formatIST } from "@/lib/formatters";
 import type { RootState, AppDispatch } from "@/store";
 import type { Signal, SignalCategory, DisplayStatus } from "@/types/signal";

@@ -5,7 +5,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, Select, MenuItem, TextField, FormControl, InputLabel,
-  CircularProgress, Skeleton, Grid, Divider, Stack, Tooltip,
+  CircularProgress, Skeleton, Divider, Stack, Tooltip,
 } from "@mui/material";
 import { TrendingUp, TrendingDown, SellOutlined, InfoOutlined } from "@mui/icons-material";
 import { enqueueSnackbar } from "notistack";
@@ -93,7 +93,7 @@ function SellDialog({
       }).unwrap();
       enqueueSnackbar(`${position.symbol} sold at ₹${p.toLocaleString("en-IN")}`, { variant: "success" });
       onClose();
-    } catch (err) {
+    } catch (_err) {
       enqueueSnackbar("Sell failed — check logs", { variant: "error" });
     }
   };
@@ -270,7 +270,7 @@ function OpenPositionsTab({ onSell }: { onSell: (pos: Position) => void }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function TradeHistoryTab() {
-  const [page, setPage] = useState(0);
+  const [page] = useState(0);
   const PAGE_SIZE = 50;
   const { data, isLoading } = useGetTradesQuery({ limit: PAGE_SIZE, offset: page * PAGE_SIZE });
 
@@ -294,7 +294,7 @@ function TradeHistoryTab() {
       <Table size="small">
         <TableHead>
           <TableRow>
-            {["Symbol", "Side", "Qty", "Entry ₹", "Exit ₹", "P&L", "P&L %", "Exit Reason", "Date"].map((h) => (
+            {["Symbol", "Side", "Qty", "Price ₹", "P&L", "P&L %", "Exit Reason", "Date"].map((h) => (
               <TableCell key={h} sx={{ color: "text.secondary", fontSize: "0.72rem", whiteSpace: "nowrap" }}>
                 {h}
               </TableCell>
@@ -320,7 +320,6 @@ function TradeHistoryTab() {
                   />
                 </TableCell>
                 <TableCell sx={{ fontSize: "0.75rem" }}>{t.quantity}</TableCell>
-                <TableCell sx={{ fontSize: "0.75rem" }}>{formatPrice(t.price)}</TableCell>
                 <TableCell sx={{ fontSize: "0.75rem" }}>{formatPrice(t.price)}</TableCell>
                 <TableCell>
                   {t.pnl_abs != null ? (

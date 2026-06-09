@@ -1,9 +1,7 @@
 "use client";
 import { useEffect, useRef } from "react";
 import { Box, CircularProgress, Typography } from "@mui/material";
-import type {
-  IChartApi, ISeriesApi, CandlestickData, LineData,
-} from "lightweight-charts";
+import type { IChartApi } from "lightweight-charts";
 
 interface Bar {
   time: number;

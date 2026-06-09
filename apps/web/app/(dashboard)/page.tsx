@@ -13,18 +13,14 @@ import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageError } from "@/components/ui/PageError";
 import { useGetDashboardQuery } from "@/store/api/scannerApi";
-import { formatIST, formatPct, formatPrice, formatRR } from "@/lib/formatters";
+import { formatIST, formatPrice, formatRR } from "@/lib/formatters";
 import type { RootState } from "@/store";
 import type { DashboardData } from "@/store/api/scannerApi";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Display-status → colour mapping
 // ─────────────────────────────────────────────────────────────────────────────
-const STATUS_COLOR: Record<string, string> = {
-  "BUY":       "#22c55e",
-  "WATCH":     "#f59e0b",
-  "NO_ACTION": "#64748b",
-};
+
 
 const DISPLAY_CATEGORY_COLOR: Record<string, string> = {
   "Long-Term Buy":  "#22c55e",
@@ -75,6 +71,22 @@ function OpportunitiesSection({ items }: { items: DashboardData["recent_opportun
 
   return (
     <Stack spacing={0}>
+      {/* Column headers */}
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "90px 1fr 48px 64px 56px",
+          gap: 1,
+          px: 0.5,
+          pb: 0.5,
+        }}
+      >
+        {["Symbol", "Status", "GATE", "Entry", "RR"].map((h) => (
+          <Typography key={h} variant="caption" color="text.disabled" textAlign={h === "Symbol" || h === "Status" ? "left" : "right"}>
+            {h}
+          </Typography>
+        ))}
+      </Box>
       {items.map((sig) => {
         const cat = sig.display_category ?? "—";
         const color = DISPLAY_CATEGORY_COLOR[cat] ?? "#64748b";
@@ -131,22 +143,6 @@ function OpportunitiesSection({ items }: { items: DashboardData["recent_opportun
           </Box>
         );
       })}
-      {/* Column headers */}
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: "90px 1fr 48px 64px 56px",
-          gap: 1,
-          px: 0.5,
-          pt: 0.5,
-        }}
-      >
-        {["Symbol", "Status", "GATE", "Entry", "RR"].map((h) => (
-          <Typography key={h} variant="caption" color="text.disabled" textAlign={h === "Symbol" || h === "Status" ? "left" : "right"}>
-            {h}
-          </Typography>
-        ))}
-      </Box>
     </Stack>
   );
 }
@@ -183,6 +179,22 @@ function RecentTradesSection({ items }: { items: DashboardData["recent_trades"] 
 
   return (
     <Stack spacing={0}>
+      {/* Column headers */}
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "80px 1fr 80px 70px",
+          gap: 1,
+          px: 0.5,
+          pb: 0.5,
+        }}
+      >
+        {["Symbol", "Exit Reason", "P&L", "Date"].map((h) => (
+          <Typography key={h} variant="caption" color="text.disabled" textAlign={h === "Symbol" || h === "Exit Reason" ? "left" : "right"}>
+            {h}
+          </Typography>
+        ))}
+      </Box>
       {trades.map((t) => {
         const isWin = (t.pnl_abs ?? 0) >= 0;
         return (
@@ -219,21 +231,6 @@ function RecentTradesSection({ items }: { items: DashboardData["recent_trades"] 
           </Box>
         );
       })}
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: "80px 1fr 80px 70px",
-          gap: 1,
-          px: 0.5,
-          pt: 0.5,
-        }}
-      >
-        {["Symbol", "Exit Reason", "P&L", "Date"].map((h) => (
-          <Typography key={h} variant="caption" color="text.disabled" textAlign={h === "Symbol" || h === "Exit Reason" ? "left" : "right"}>
-            {h}
-          </Typography>
-        ))}
-      </Box>
     </Stack>
   );
 }

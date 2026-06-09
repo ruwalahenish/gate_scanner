@@ -30,9 +30,7 @@ export const theme = createTheme({
       "Segoe UI",
       "sans-serif",
     ].join(","),
-    // @ts-ignore — tabular-nums is valid CSS but MUI's CSSProperties type is incomplete
     body2:   { fontVariantNumeric: "tabular-nums" },
-    // @ts-ignore
     caption: { fontVariantNumeric: "tabular-nums" },
   },
 
@@ -288,7 +286,7 @@ export const theme = createTheme({
     },
 
     // ── DataGrid (requires @mui/x-data-grid module augmentation) ────────
-    // @ts-ignore
+    // @ts-expect-error — MuiDataGrid component overrides require @mui/x-data-grid module augmentation
     MuiDataGrid: {
       styleOverrides: {
         root: {

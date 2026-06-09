@@ -102,7 +102,7 @@ function SyncDialog({
           The following phases will be queued as a background Celery task. This may take several minutes.
         </Typography>
         <Stepper orientation="vertical" nonLinear>
-          {activeSteps.map((p, i) => (
+          {activeSteps.map((p) => (
             <Step key={p.key} active completed={false}>
               <StepLabel>
                 <Typography variant="body2" fontWeight={600}>{p.label}</Typography>

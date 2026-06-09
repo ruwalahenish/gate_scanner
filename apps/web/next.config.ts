@@ -12,14 +12,15 @@ const nextConfig: NextConfig = {
   },
   // Rewrites so /api/* goes to FastAPI during development
   async rewrites() {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
     return [
       {
         source: "/api/:path*",
-        destination: `${process.env.NEXT_PUBLIC_API_URL}/api/:path*`,
+        destination: `${apiUrl}/api/:path*`,
       },
       {
         source: "/ws",
-        destination: `${process.env.NEXT_PUBLIC_API_URL}/ws`,
+        destination: `${apiUrl}/ws`,
       },
     ];
   },
