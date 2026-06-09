@@ -197,15 +197,12 @@ jobs:
         run: npm install --global vercel@latest
 
       - name: Pull Vercel environment
-        working-directory: apps/web
         run: vercel pull --yes --environment=${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }} --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Build
-        working-directory: apps/web
         run: vercel build ${{ github.ref == 'refs/heads/main' && '--prod' || '' }} --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy
-        working-directory: apps/web
         id: deploy
         run: |
           URL=$(vercel deploy --prebuilt ${{ github.ref == 'refs/heads/main' && '--prod' || '' }} --token=${{ secrets.VERCEL_TOKEN }})
