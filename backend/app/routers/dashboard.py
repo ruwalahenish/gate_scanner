@@ -14,7 +14,6 @@ import structlog
 from fastapi import APIRouter, Depends
 
 from app.dependencies import db_conn, redis_client
-from app.queries.scans import get_latest_done_scan_id
 from app.services.price_service import get_bulk_prices
 
 log = structlog.get_logger()

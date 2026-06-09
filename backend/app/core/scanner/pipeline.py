@@ -152,7 +152,6 @@ def run_scan(
                 for sym, data in batch
             }
             for future in as_completed(future_to_sym):
-                sym = future_to_sym[future]
                 result = future.result()
                 if result is not None:
                     enriched_batch.append(result)

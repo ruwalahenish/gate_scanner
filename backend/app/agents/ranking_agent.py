@@ -6,7 +6,7 @@ Composite ranking + classification across all signaled symbols.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from app.agents.base import BaseAgent
 from app.core.ranking import ranking_engine
@@ -30,8 +30,7 @@ class SignalRankingAgent(BaseAgent):
         sorted by category priority and then rank_score desc.
         """
         # 1) Rank only those with signals
-        with_signals    = [r for r in scored_universe if r.get("signal")]
-        without_signals = [r for r in scored_universe if not r.get("signal")]
+        with_signals = [r for r in scored_universe if r.get("signal")]
 
         ranked = ranking_engine.rank([r["signal"] for r in with_signals])
         # Map back rank_score onto each entry

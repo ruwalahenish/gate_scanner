@@ -44,7 +44,7 @@ def _univ_cache_dir() -> Path:
 def _read_univ_cache(name: str) -> Optional[List[str]]:
     p = _univ_cache_dir() / f"_univ_{name}.txt"
     if p.exists() and (time.time() - p.stat().st_mtime) < _UNIV_CACHE_HOURS * 3600:
-        syms = [l.strip() for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+        syms = [line.strip() for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
         if syms:
             return syms
     return None
@@ -463,7 +463,8 @@ def _fetch_all_bse_equity(nse_symbols: Optional[set] = None) -> Optional[List[st
     raw_bse_symbols: dict = {}   # trading_symbol -> True
 
     try:
-        import urllib.request, json
+        import json
+        import urllib.request
 
         base_url = "https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w"
         common_headers = {

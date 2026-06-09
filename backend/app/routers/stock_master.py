@@ -24,7 +24,6 @@ from app.queries.stock_master import (
     get_stock,
     list_stocks_with_signals,
     search_stocks,
-    _index_filter_to_column,
 )
 
 router = APIRouter(tags=["stock_master"])

@@ -239,7 +239,8 @@ async def list_stocks(
 
     if exchange:
         conditions.append(f"exchange = ${idx}")
-        params.append(exchange); idx += 1
+        params.append(exchange)
+        idx += 1
 
     if index_filter:
         col = _index_filter_to_column(index_filter)
@@ -247,11 +248,13 @@ async def list_stocks(
 
     if sector:
         conditions.append(f"sector ILIKE ${idx}")
-        params.append(f"%{sector}%"); idx += 1
+        params.append(f"%{sector}%")
+        idx += 1
 
     if sync_status:
         conditions.append(f"sync_status = ${idx}")
-        params.append(sync_status); idx += 1
+        params.append(sync_status)
+        idx += 1
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
@@ -360,7 +363,8 @@ async def list_stocks_with_signals(
 
     if exchange:
         conditions.append(f"sm.exchange = ${idx}")
-        params.append(exchange); idx += 1
+        params.append(exchange)
+        idx += 1
 
     if index_filter:
         col = _index_filter_to_column(index_filter)
@@ -368,11 +372,13 @@ async def list_stocks_with_signals(
 
     if sector:
         conditions.append(f"sm.sector ILIKE ${idx}")
-        params.append(f"%{sector}%"); idx += 1
+        params.append(f"%{sector}%")
+        idx += 1
 
     if category:
         conditions.append(f"sig_lat.category = ${idx}")
-        params.append(category); idx += 1
+        params.append(category)
+        idx += 1
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 

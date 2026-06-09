@@ -48,19 +48,27 @@ def _direction(tf_analysis: Dict) -> str:
     gate_bias = tf_analysis["gate"]["direction_bias"]
 
     votes = []
-    if stack == "bullish":  votes.append("up")
-    elif stack == "bearish": votes.append("down")
-    if trend == "up":        votes.append("up")
-    elif trend == "down":    votes.append("down")
-    if gate_bias == "bullish":  votes.append("up")
-    elif gate_bias == "bearish": votes.append("down")
+    if stack == "bullish":
+        votes.append("up")
+    elif stack == "bearish":
+        votes.append("down")
+    if trend == "up":
+        votes.append("up")
+    elif trend == "down":
+        votes.append("down")
+    if gate_bias == "bullish":
+        votes.append("up")
+    elif gate_bias == "bearish":
+        votes.append("down")
 
     if not votes:
         return "neutral"
-    ups   = votes.count("up")
+    ups = votes.count("up")
     downs = votes.count("down")
-    if ups > downs:   return "up"
-    if downs > ups:   return "down"
+    if ups > downs:
+        return "up"
+    if downs > ups:
+        return "down"
     return "neutral"
 
 

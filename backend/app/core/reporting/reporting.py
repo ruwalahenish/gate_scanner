@@ -105,7 +105,8 @@ def _print_plain(results):
 
 
 def _fmt(v, dec=2):
-    if v is None: return "-"
+    if v is None:
+        return "-"
     try:
         return f"{float(v):.{dec}f}"
     except Exception:
@@ -162,8 +163,10 @@ def write_json(results: List[Dict], path: str) -> None:
         if isinstance(o, (list, tuple)):
             return [_safe(x) for x in o]
         if hasattr(o, "item"):       # numpy scalar
-            try: return o.item()
-            except Exception: return str(o)
+            try:
+                return o.item()
+            except Exception:
+                return str(o)
         if isinstance(o, float) and (o != o):  # NaN
             return None
         return o

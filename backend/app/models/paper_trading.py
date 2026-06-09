@@ -1,7 +1,6 @@
 from pydantic import BaseModel, UUID4, field_validator
 from datetime import datetime
 from typing import Optional
-import re
 
 
 class SellRequest(BaseModel):

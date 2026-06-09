@@ -237,7 +237,6 @@ async def auto_exit_positions(conn: asyncpg.Connection, redis) -> int:
             continue
 
         position_id = pos["id"]
-        entry = float(pos["avg_entry"])
         sl = float(pos["stop_loss"]) if pos["stop_loss"] else None
         t1 = float(pos["t1"]) if pos["t1"] else None
         t2 = float(pos["t2"]) if pos["t2"] else None

@@ -10,8 +10,7 @@ from app.dependencies import db_conn, redis_client
 from app.limiter import limiter
 from app.models.scan import TriggerScanRequest, TriggerScanResponse, ScanStatus
 from app.queries.scans import create_scan, get_scan, list_scans, has_running_scan, update_scan_status
-from app.queries.signals import get_latest_signals, get_signal_history
-from app.services.scan_service import analyze_symbol_async, fetch_ohlcv_async
+from app.queries.signals import get_latest_signals
 from app.tasks.scanner_tasks import run_scan_task
 import redis.asyncio as aioredis
 
@@ -238,7 +237,7 @@ async def update_scan_schedule(
     if not updates:
         raise HTTPException(status_code=422, detail="No fields provided for update")
 
-    updates.append(f"updated_at=NOW()")
+    updates.append("updated_at=NOW()")
     params.append(1)  # WHERE id=1
     await conn.execute(
         f"UPDATE scan_schedule SET {', '.join(updates)} WHERE id=${idx}",

@@ -43,7 +43,7 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
     from app.config import get_settings
     from app.core.json_utils import CustomEncoder
     from app.services.scan_service import run_scan_async
-    from app.db import create_pool, close_pool, get_pool
+    from app.db import create_pool, close_pool
     from app.queries.scans import update_scan_status
     from app.queries.signals import insert_signals_batch
     import json
