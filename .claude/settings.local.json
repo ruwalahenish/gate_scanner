@@ -59,7 +59,8 @@
       "PowerShell(docker start gate-redis 2>&1)",
       "PowerShell(python -c \"import redis; r = redis.from_url\\('redis://localhost:6379/0'\\); r.ping\\(\\); print\\('Redis: ONLINE'\\)\" 2>&1)",
       "WebSearch",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "PowerShell(cd \"d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\" ; npx next lint ; echo \"Exit: $LASTEXITCODE\")"
     ],
     "additionalDirectories": [
       "\\mnt\\d\\gate-scanner",
