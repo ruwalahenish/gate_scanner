@@ -176,46 +176,8 @@ jobs:
           echo "Deployed to https://huggingface.co/spaces/$HF_USERNAME/gate-backend"
 
   # ── Deploy Frontend → Vercel ──────────────────────────────────────
-  deploy-frontend:
-    name: Deploy frontend → Vercel
-    needs: [frontend]
-    if: github.event_name == 'push' && needs.frontend.result == 'success'
-    runs-on: ubuntu-latest
-    env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install Vercel CLI
-        run: npm install --global vercel@latest
-
-      - name: Pull Vercel environment
-        run: vercel pull --yes --environment=${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }} --token=${{ secrets.VERCEL_TOKEN }}
-
-      - name: Build
-        run: vercel build ${{ github.ref == 'refs/heads/main' && '--prod' || '' }} --token=${{ secrets.VERCEL_TOKEN }}
-
-      - name: Deploy
-        id: deploy
-        run: |
-          URL=$(vercel deploy --prebuilt ${{ github.ref == 'refs/heads/main' && '--prod' || '' }} --token=${{ secrets.VERCEL_TOKEN }})
-          echo "url=$URL" >> $GITHUB_OUTPUT
-
-      - name: Comment preview URL on PR
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '### Preview deployment\n\nFrontend: ${{ steps.deploy.outputs.url }}'
-            })
+  # Deployment is handled by Vercel's native GitHub integration.
+  # Vercel auto-deploys on push to main; the ignoreCommand in vercel.json
+  # skips builds when only non-frontend files change.
+  # CLI-based deploy is intentionally removed — Hobby plan blocks deployments
+  # where the commit author is not the Vercel project owner.
