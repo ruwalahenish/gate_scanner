@@ -26,7 +26,7 @@ export function TopBar({ title }: { title?: string }) {
   useEffect(() => {
     if (!pollData || !currentScanId) return;
     if (pollData.status === "done") {
-      dispatch(scanCompleted(currentScanId));
+      dispatch(scanCompleted({ scan_id: currentScanId, signals_count: pollData.signals_found ?? 0 }));
       dispatch(scannerApi.util.invalidateTags(["Signal", "Scan", "Dashboard"]));
       dispatch(stockMasterApi.util.invalidateTags(["Stock"]));
     } else if (pollData.status === "failed") {

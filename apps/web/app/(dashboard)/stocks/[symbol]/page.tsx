@@ -225,11 +225,15 @@ export default function StockDetailPage() {
   const [triggerBacktest, { isLoading: isTriggering }] = useTriggerStockBacktestMutation();
   const [cancelBacktest, { isLoading: isCancelling }] = useCancelBacktestMutation();
 
-  // Poll the active scan status until terminal
+  // Poll the active scan status until terminal.
+  // isTerminalRef breaks the circular reference that would arise from referencing
+  // scanStatus inside its own pollingInterval initializer.
+  const isTerminalRef = useRef(false);
   const { data: scanStatus } = useGetBacktestStatusQuery(activeScanId!, {
     skip: !activeScanId,
-    pollingInterval: activeScanId && !TERMINAL_STATUSES.has(scanStatus?.status ?? "") ? 3000 : 0,
+    pollingInterval: activeScanId && !isTerminalRef.current ? 3000 : 0,
   });
+  isTerminalRef.current = TERMINAL_STATUSES.has(scanStatus?.status ?? "");
 
   // Refetch trades when scan completes
   useEffect(() => {
