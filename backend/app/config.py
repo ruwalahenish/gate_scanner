@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # Optional NeonDB read-replica URL (leave empty to fall back to primary)
     read_replica_url: str = ""
 
+    # Secret token for internal task-trigger endpoints (POST /api/internal/tasks/*)
+    # Set via INTERNAL_SECRET env var. Leave empty to disable internal endpoints.
+    internal_secret: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

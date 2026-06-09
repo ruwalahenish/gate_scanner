@@ -4,7 +4,8 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    plan: free
+    plan: free          # upgrade to "starter" ($7/mo) for always-on if needed
+    autoDeploy: false   # CI/CD controlled — deploy only after CI passes
     healthCheckPath: /api/health
     envVars:
       - key: SCAN_EXECUTOR_WORKERS

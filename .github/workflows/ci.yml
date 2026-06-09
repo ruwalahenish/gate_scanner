@@ -1,4 +1,4 @@
-name: CI
+name: CI / CD
 
 on:
   push:
@@ -6,10 +6,37 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  # ── Backend ─────────────────────────────────────────────────────────
+  # ── Detect which directories changed ──────────────────────────────
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'docker-compose.yml'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'apps/web/**'
+              - '.github/workflows/ci.yml'
+
+  # ── Backend CI ────────────────────────────────────────────────────
   backend:
     name: Backend — lint, type-check, test
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -49,9 +76,11 @@ jobs:
           REDIS_URL: "redis://localhost:6379/0"
         run: pytest tests/ -x -v --tb=short
 
-  # ── Frontend ─────────────────────────────────────────────────────────
+  # ── Frontend CI ───────────────────────────────────────────────────
   frontend:
     name: Frontend — audit, lint, type-check, build
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -81,16 +110,16 @@ jobs:
 
       - name: Build
         env:
-          NEXT_PUBLIC_API_URL: "http://localhost:8000"
-          NEXT_PUBLIC_WS_URL: "ws://localhost:8000/ws"
+          NEXT_PUBLIC_API_URL: "https://henish1999-gate-backend.hf.space"
+          NEXT_PUBLIC_WS_URL: "wss://henish1999-gate-backend.hf.space/ws"
         run: npm run build
 
-  # ── Docker smoke test ────────────────────────────────────────────────
+  # ── Docker build smoke test ───────────────────────────────────────
   docker:
     name: Docker build smoke test
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
-    if: github.ref == 'refs/heads/main'
+    needs: [backend]
+    if: github.ref == 'refs/heads/main' && needs.backend.result == 'success'
 
     steps:
       - uses: actions/checkout@v4
@@ -98,5 +127,90 @@ jobs:
       - name: Build backend image
         run: docker build -t gate-api:ci ./backend
 
-      - name: Build frontend image
-        run: docker build -t gate-web:ci ./apps/web
+  # ── Deploy Backend → HuggingFace Space ────────────────────────────
+  # Primary free deployment target — no credit card required.
+  # The HF Space runs the same Docker image built by ./backend/Dockerfile.
+  # Celery Beat has been removed; cron-job.org triggers /api/internal/tasks/*
+  deploy-backend:
+    name: Deploy backend → HuggingFace Space
+    needs: [backend, docker]
+    if: |
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' &&
+      needs.backend.result == 'success' &&
+      needs.docker.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      # full history needed for git subtree
+
+      - name: Push backend/ to HuggingFace Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_USERNAME: ${{ secrets.HF_USERNAME }}
+        run: |
+          git config user.email "ci@github.com"
+          git config user.name "GitHub Actions"
+
+          # Clone the HF Space repo into a temp directory
+          git clone https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/gate-backend hf_space
+
+          # Overwrite Space contents with the current backend/ directory
+          rsync -av --delete \
+            --exclude='.git' \
+            backend/ hf_space/
+
+          cd hf_space
+          git add -A
+          # Commit only if there are actual changes
+          git diff --cached --quiet && echo "No changes to deploy" && exit 0
+          git commit -m "Deploy $(git -C .. rev-parse --short HEAD)"
+          git push
+          echo "Deployed to https://huggingface.co/spaces/$HF_USERNAME/gate-backend"
+
+  # ── Deploy Frontend → Vercel ──────────────────────────────────────
+  deploy-frontend:
+    name: Deploy frontend → Vercel
+    needs: [frontend]
+    if: github.event_name == 'push' && needs.frontend.result == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel environment
+        working-directory: apps/web
+        run: vercel pull --yes --environment=${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }} --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build
+        working-directory: apps/web
+        run: vercel build ${{ github.ref == 'refs/heads/main' && '--prod' || '' }} --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy
+        working-directory: apps/web
+        id: deploy
+        run: |
+          URL=$(vercel deploy --prebuilt ${{ github.ref == 'refs/heads/main' && '--prod' || '' }} --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Comment preview URL on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '### Preview deployment\n\nFrontend: ${{ steps.deploy.outputs.url }}'
+            })

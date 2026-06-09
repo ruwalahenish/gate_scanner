@@ -20,7 +20,7 @@ from app.exceptions import GATEBaseError
 from app.services.ws_manager import manager
 from app.routers import (
     signals, paper_trading, scans, dashboard,
-    universe, watchlist, market, backtests, stock_master,
+    universe, watchlist, market, backtests, stock_master, internal,
 )
 
 # Structured logging — pretty console in dev; swap ConsoleRenderer for JSONRenderer in prod
@@ -168,6 +168,9 @@ async def websocket_endpoint(ws: WebSocket):
     except WebSocketDisconnect:
         await manager.disconnect(ws)
 
+
+# Internal task-trigger endpoints — called by cron-job.org (replaces Celery Beat)
+app.include_router(internal.router, prefix="/api/internal")
 
 # Mount routers — both /api/ (legacy) and /api/v1/ (versioned, forward-compatible)
 for prefix in ("/api", "/api/v1"):
