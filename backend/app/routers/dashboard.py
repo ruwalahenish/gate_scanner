@@ -11,7 +11,7 @@ import json
 import asyncpg
 import redis.asyncio as aioredis
 import structlog
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 
 from app.db import get_pool
 from app.redis_client import get_redis
@@ -29,7 +29,7 @@ _CACHE_TTL = 60  # seconds
 # ---------------------------------------------------------------------------
 
 @router.get("")
-async def get_dashboard():
+async def get_dashboard(response: Response):
     """
     Single-call dashboard payload:
       scanner      — latest scan stats + signal counts
@@ -40,6 +40,7 @@ async def get_dashboard():
       recent_trades        — last 5 closed paper trades
       system_health        — DB / Redis / last scan duration
     """
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     redis: aioredis.Redis | None = None
     try:
         redis = get_redis()

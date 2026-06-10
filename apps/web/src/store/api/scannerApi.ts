@@ -77,7 +77,7 @@ export const scannerApi = createApi({
   endpoints: (builder) => ({
     // ── Dashboard ──────────────────────────────────────────────────────────
     getDashboard: builder.query<DashboardData, void>({
-      query: () => "/dashboard",
+      query: () => "/v1/dashboard",
       providesTags: ["Dashboard"],
       keepUnusedDataFor: 60,
     }),
