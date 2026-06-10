@@ -71,7 +71,14 @@
       "PowerShell(Get-ChildItem \"$env:LOCALAPPDATA\\\\com.vercel.cli\\\\Cache\" -Recurse -Force | Select-Object FullName, Length | Select-Object -First 20)",
       "Bash(xargs grep -l \"Flower\\\\|Prometheus\\\\|metric\\\\|alert\")",
       "Bash(grep -E \"\\\\.py$\")",
-      "Bash(xargs -I {} basename {})"
+      "Bash(xargs -I {} basename {})",
+      "Bash(python -m pytest tests/test_routers.py::test_get_dashboard_returns_dict tests/test_routers.py::test_get_dashboard_fallback_on_db_error -x -v --tb=short)",
+      "Bash(python -m pytest tests/ -x -v --tb=short)",
+      "Bash(git push *)",
+      "Bash(psql --version)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git -C d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner log --all --oneline -- apps/web/.env.local -- .env)"
     ],
     "additionalDirectories": [
       "\\mnt\\d\\gate-scanner",
