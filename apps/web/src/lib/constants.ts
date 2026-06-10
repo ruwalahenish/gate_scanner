@@ -8,6 +8,60 @@ export const CATEGORY_COLORS = {
 
 export const CATEGORY_ORDER = ["INVESTMENT", "SWING", "POSITIONAL", "WATCH", "IGNORE"] as const;
 
+// Unified color token — canonical source for all signal/status colors.
+// Components should import from here instead of using raw hex strings.
+export const STATUS_COLORS = {
+  INVESTMENT:     "#22c55e",
+  SWING:          "#6366f1",
+  POSITIONAL:     "#38bdf8",
+  WATCH:          "#f59e0b",
+  IGNORE:         "#64748b",
+  "Long-Term Buy": "#22c55e",
+  "Swing Buy":     "#6366f1",
+  "Positional Buy":"#38bdf8",
+  "Watch":         "#f59e0b",
+  "No Action":     "#64748b",
+} as const;
+
+// GATE score colors and thresholds — single source for GATEBar, ScoreBar, etc.
+export const GATE_COLOR = {
+  HIGH: "#22c55e",
+  MID:  "#6366f1",
+  LOW:  "#f59e0b",
+  FAIL: "#ef4444",
+} as const;
+
+export const GATE_THRESHOLDS = {
+  HIGH: 70,
+  MID:  55,
+  LOW:  40,
+} as const;
+
+// Surface/overlay tokens — replaces scattered rgba strings throughout components.
+export const SURFACE = {
+  hover:        "rgba(255,255,255,0.025)",
+  hoverStrong:  "rgba(255,255,255,0.06)",
+  border:       "rgba(255,255,255,0.06)",
+  borderStrong: "rgba(255,255,255,0.1)",
+  overlay:      "rgba(0,0,0,0.15)",
+  primary10:    "rgba(99,102,241,0.1)",
+  primary15:    "rgba(99,102,241,0.15)",
+} as const;
+
+// Standardized spacing scale — use these in sx props for consistent padding/gaps.
+export const SPACING = {
+  cardPx:     2,
+  rowPy:      0.75,
+  sectionGap: 2,
+} as const;
+
+// Animation duration tokens (ms).
+export const ANIM = {
+  fast:   120,
+  normal: 200,
+  slow:   300,
+} as const;
+
 export const TIMEFRAME_LABELS: Record<string, string> = {
   "1m":  "1 Min",
   "5m":  "5 Min",

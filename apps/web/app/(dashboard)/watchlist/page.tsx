@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useCallback, memo } from "react";
 import {
   Box, Card, Typography, Chip, Tab, Tabs, IconButton, Collapse,
   Stack, Divider, Skeleton, Tooltip, CircularProgress,
@@ -17,6 +17,7 @@ import {
 import { GATEBar } from "@/components/ui/GATEBar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { formatIST } from "@/lib/formatters";
+import { STATUS_COLORS, GATE_COLOR } from "@/lib/constants";
 import type { WatchlistItem, WatchlistHistoryEvent, WatchlistStatus } from "@/types/watchlist";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -26,20 +27,20 @@ import type { WatchlistItem, WatchlistHistoryEvent, WatchlistStatus } from "@/ty
 type FilterTab = "all" | WatchlistStatus;
 
 const STATUS_TABS: { value: FilterTab; label: string; color: string }[] = [
-  { value: "all",           label: "All",           color: "#94a3b8" },
-  { value: "active",        label: "Watching",      color: "#f59e0b" },
-  { value: "buy_triggered", label: "Buy Triggered", color: "#22c55e" },
-  { value: "target_hit",    label: "Target Hit",    color: "#38bdf8" },
-  { value: "sl_hit",        label: "Stop Loss Hit", color: "#ef4444" },
-  { value: "closed",        label: "Closed",        color: "#64748b" },
+  { value: "all",           label: "All",           color: "#94a3b8"                     },
+  { value: "active",        label: "Watching",      color: STATUS_COLORS.WATCH            },
+  { value: "buy_triggered", label: "Buy Triggered", color: STATUS_COLORS.INVESTMENT       },
+  { value: "target_hit",    label: "Target Hit",    color: STATUS_COLORS.POSITIONAL       },
+  { value: "sl_hit",        label: "Stop Loss Hit", color: GATE_COLOR.FAIL                },
+  { value: "closed",        label: "Closed",        color: STATUS_COLORS.IGNORE           },
 ];
 
 const STATUS_META: Record<WatchlistStatus, { label: string; color: string }> = {
-  active:        { label: "Watching",      color: "#f59e0b" },
-  buy_triggered: { label: "Buy Triggered", color: "#22c55e" },
-  target_hit:    { label: "Target Hit",    color: "#38bdf8" },
-  sl_hit:        { label: "Stop Loss Hit", color: "#ef4444" },
-  closed:        { label: "Closed",        color: "#64748b" },
+  active:        { label: "Watching",      color: STATUS_COLORS.WATCH            },
+  buy_triggered: { label: "Buy Triggered", color: STATUS_COLORS.INVESTMENT       },
+  target_hit:    { label: "Target Hit",    color: STATUS_COLORS.POSITIONAL       },
+  sl_hit:        { label: "Stop Loss Hit", color: GATE_COLOR.FAIL                },
+  closed:        { label: "Closed",        color: STATUS_COLORS.IGNORE           },
 };
 
 const EVENT_LABEL: Record<string, string> = {
@@ -114,19 +115,21 @@ function HistoryTimeline({ symbol }: { symbol: string }) {
 
 const GRID = "32px 110px 1fr 130px 90px 85px 85px 36px";
 
-function WatchlistRow({ item }: { item: WatchlistItem }) {
+const WatchlistRow = memo(function WatchlistRow({ item }: { item: WatchlistItem }) {
   const [expanded, setExpanded] = useState(false);
   const [removeFromWatchlist, { isLoading: isRemoving }] = useRemoveFromWatchlistMutation();
   const meta = STATUS_META[item.status];
 
-  const handleRemove = async () => {
+  const handleRemove = useCallback(async () => {
     try {
       await removeFromWatchlist(item.symbol).unwrap();
       enqueueSnackbar(`${item.symbol} removed from watchlist`, { variant: "info" });
     } catch {
       enqueueSnackbar("Remove failed", { variant: "error" });
     }
-  };
+  }, [removeFromWatchlist, item.symbol]);
+
+  const handleToggle = useCallback(() => setExpanded((p) => !p), []);
 
   return (
     <>
@@ -143,7 +146,13 @@ function WatchlistRow({ item }: { item: WatchlistItem }) {
         }}
       >
         {/* Expand toggle */}
-        <IconButton size="small" onClick={() => setExpanded((p) => !p)} sx={{ p: 0.3 }}>
+        <IconButton
+          size="small"
+          onClick={handleToggle}
+          aria-label={expanded ? "Collapse watchlist details" : "Expand watchlist details"}
+          aria-expanded={expanded}
+          sx={{ p: 0.3 }}
+        >
           {expanded ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
         </IconButton>
 
@@ -192,7 +201,13 @@ function WatchlistRow({ item }: { item: WatchlistItem }) {
         {/* Remove */}
         <Tooltip title="Remove from watchlist">
           <span>
-            <IconButton size="small" onClick={handleRemove} disabled={isRemoving} sx={{ p: 0.3 }}>
+            <IconButton
+              size="small"
+              onClick={handleRemove}
+              disabled={isRemoving}
+              aria-label={`Remove ${item.symbol} from watchlist`}
+              sx={{ p: 0.3 }}
+            >
               {isRemoving
                 ? <CircularProgress size={14} sx={{ color: "error.dark" }} />
                 : <Delete fontSize="small" sx={{ color: "error.dark", fontSize: 16 }} />}
@@ -215,7 +230,7 @@ function WatchlistRow({ item }: { item: WatchlistItem }) {
       </Collapse>
     </>
   );
-}
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Table headers

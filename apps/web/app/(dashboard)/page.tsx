@@ -8,58 +8,49 @@ import {
   CheckCircleOutline, ErrorOutline, AccessTime,
 } from "@mui/icons-material";
 import { useSelector } from "react-redux";
+import { memo } from "react";
 import { StatCard } from "@/components/ui/StatCard";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageError } from "@/components/ui/PageError";
+import { PnlBadge } from "@/components/ui/PnlBadge";
+import { CategoryChip } from "@/components/ui/CategoryChip";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useGetDashboardQuery } from "@/store/api/scannerApi";
 import { formatIST, formatPrice, formatRR } from "@/lib/formatters";
-import type { RootState } from "@/store";
+import { STATUS_COLORS } from "@/lib/constants";
+import {
+  selectScanProgress,
+  selectLastPostProcess,
+  selectHasRealProgress,
+  selectScanProgressPct,
+} from "@/store/selectors";
 import type { DashboardData } from "@/store/api/scannerApi";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Display-status → colour mapping
-// ─────────────────────────────────────────────────────────────────────────────
-
-
-const DISPLAY_CATEGORY_COLOR: Record<string, string> = {
-  "Long-Term Buy":  "#22c55e",
-  "Swing Buy":      "#6366f1",
-  "Positional Buy": "#38bdf8",
-  "Watch":          "#f59e0b",
-  "No Action":      "#64748b",
-};
+import type { SignalCategory } from "@/types/signal";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Small inline helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PnlText({ value }: { value: number | null | undefined }) {
-  if (value == null) return <Typography component="span" variant="body2">—</Typography>;
-  const pos = value >= 0;
-  return (
-    <Typography
-      component="span"
-      variant="body2"
-      fontWeight={600}
-      color={pos ? "success.main" : "error.main"}
-    >
-      {pos ? "+" : ""}{formatPrice(value, 0)}
-    </Typography>
-  );
-}
-
 function HealthDot({ ok }: { ok: boolean }) {
   return ok
-    ? <CheckCircleOutline sx={{ fontSize: 16, color: "success.main" }} />
-    : <ErrorOutline sx={{ fontSize: 16, color: "error.main" }} />;
+    ? <CheckCircleOutline
+        sx={{ fontSize: 16, color: "success.main" }}
+        aria-label="Healthy"
+        titleAccess={ok ? "Healthy" : "Error"}
+      />
+    : <ErrorOutline
+        sx={{ fontSize: 16, color: "error.main" }}
+        aria-label="Error"
+        titleAccess="Error"
+      />;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Section: Recent BUY Opportunities
 // ─────────────────────────────────────────────────────────────────────────────
 
-function OpportunitiesSection({ items }: { items: DashboardData["recent_opportunities"] }) {
+const OpportunitiesSection = memo(function OpportunitiesSection({ items }: { items: DashboardData["recent_opportunities"] }) {
   if (!items || items.length === 0) {
     return (
       <EmptyState
@@ -69,6 +60,7 @@ function OpportunitiesSection({ items }: { items: DashboardData["recent_opportun
     );
   }
 
+  const OPTY_HEADERS = ["Symbol", "Status", "GATE", "Entry", "RR"];
   return (
     <Stack spacing={0}>
       {/* Column headers */}
@@ -81,15 +73,13 @@ function OpportunitiesSection({ items }: { items: DashboardData["recent_opportun
           pb: 0.5,
         }}
       >
-        {["Symbol", "Status", "GATE", "Entry", "RR"].map((h) => (
+        {OPTY_HEADERS.map((h) => (
           <Typography key={h} variant="caption" color="text.disabled" textAlign={h === "Symbol" || h === "Status" ? "left" : "right"}>
             {h}
           </Typography>
         ))}
       </Box>
       {items.map((sig) => {
-        const cat = sig.display_category ?? "—";
-        const color = DISPLAY_CATEGORY_COLOR[cat] ?? "#64748b";
         return (
           <Box
             key={sig.id}
@@ -109,17 +99,9 @@ function OpportunitiesSection({ items }: { items: DashboardData["recent_opportun
             <Typography variant="body2" fontWeight={700} noWrap>{sig.symbol}</Typography>
 
             {/* Category chip */}
-            <Chip
-              label={cat}
-              size="small"
-              sx={{
-                bgcolor: `${color}20`,
-                color,
-                border: `1px solid ${color}40`,
-                fontSize: "0.65rem",
-                height: 18,
-                fontWeight: 600,
-              }}
+            <CategoryChip
+              category={(sig.category ?? "IGNORE") as SignalCategory}
+              chipSize="xs"
             />
 
             {/* GATE score */}
@@ -145,7 +127,7 @@ function OpportunitiesSection({ items }: { items: DashboardData["recent_opportun
       })}
     </Stack>
   );
-}
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Section: Recent Paper Trades
@@ -160,7 +142,7 @@ const EXIT_LABEL: Record<string, string> = {
   trail:    "Trailing",
 };
 
-function RecentTradesSection({ items }: { items: DashboardData["recent_trades"] }) {
+const RecentTradesSection = memo(function RecentTradesSection({ items }: { items: DashboardData["recent_trades"] }) {
   type TradeRow = {
     id: string; symbol: string; pnl_abs?: number | null;
     pnl_pct?: number | null; exit_reason?: string | null; executed_at?: string;
@@ -233,19 +215,19 @@ function RecentTradesSection({ items }: { items: DashboardData["recent_trades"] 
       })}
     </Stack>
   );
-}
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Section: Watchlist mini-panel
 // ─────────────────────────────────────────────────────────────────────────────
 
-function WatchlistPanel({ wl }: { wl: DashboardData["watchlist"] }) {
+const WatchlistPanel = memo(function WatchlistPanel({ wl }: { wl: DashboardData["watchlist"] }) {
   const rows: { label: string; value: number; color?: string }[] = [
-    { label: "Watching",       value: wl.active,        color: "#f59e0b" },
-    { label: "Buy Triggered",  value: wl.buy_triggered, color: "#22c55e" },
-    { label: "Target Hit",     value: wl.target_hit,    color: "#38bdf8" },
-    { label: "Stop Loss Hit",  value: wl.sl_hit,        color: "#ef4444" },
-    { label: "Closed",         value: wl.closed,        color: "#64748b" },
+    { label: "Watching",       value: wl.active,        color: STATUS_COLORS.WATCH },
+    { label: "Buy Triggered",  value: wl.buy_triggered, color: STATUS_COLORS.INVESTMENT },
+    { label: "Target Hit",     value: wl.target_hit,    color: STATUS_COLORS.POSITIONAL },
+    { label: "Stop Loss Hit",  value: wl.sl_hit,        color: "error.main" },
+    { label: "Closed",         value: wl.closed,        color: STATUS_COLORS.IGNORE },
   ];
 
   return (
@@ -263,22 +245,22 @@ function WatchlistPanel({ wl }: { wl: DashboardData["watchlist"] }) {
       ))}
     </Stack>
   );
-}
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Section: Paper Trading P&L mini-panel
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PaperTradingPanel({ pt }: { pt: DashboardData["paper_trading"] }) {
+const PaperTradingPanel = memo(function PaperTradingPanel({ pt }: { pt: DashboardData["paper_trading"] }) {
   return (
     <Stack spacing={0.6}>
       <Typography variant="caption" color="text.secondary" fontWeight={600} mb={0.3}>
         PAPER TRADING
       </Typography>
       {[
-        { label: "Total P&L",      value: <PnlText value={pt.total_pnl} /> },
-        { label: "Realized",       value: <PnlText value={pt.realized_pnl} /> },
-        { label: "Unrealized",     value: <PnlText value={pt.unrealized_pnl} /> },
+        { label: "Total P&L",      value: <PnlBadge pnl={pt.total_pnl} variant="caption" showIcon /> },
+        { label: "Realized",       value: <PnlBadge pnl={pt.realized_pnl} variant="caption" /> },
+        { label: "Unrealized",     value: <PnlBadge pnl={pt.unrealized_pnl} variant="caption" /> },
         { label: "Win Rate",       value: <Typography variant="caption" fontWeight={600}>{pt.win_rate.toFixed(1)}%</Typography> },
         { label: "Open Positions", value: <Typography variant="caption" fontWeight={600}>{pt.open_positions}</Typography> },
       ].map(({ label, value }) => (
@@ -289,13 +271,13 @@ function PaperTradingPanel({ pt }: { pt: DashboardData["paper_trading"] }) {
       ))}
     </Stack>
   );
-}
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Section: System Health mini-panel
 // ─────────────────────────────────────────────────────────────────────────────
 
-function SystemHealthPanel({ health, scanner }: {
+const SystemHealthPanel = memo(function SystemHealthPanel({ health, scanner }: {
   health: DashboardData["system_health"];
   scanner: DashboardData["scanner"];
 }) {
@@ -336,7 +318,7 @@ function SystemHealthPanel({ health, scanner }: {
       </Box>
     </Stack>
   );
-}
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main dashboard page
@@ -347,13 +329,10 @@ export default function DashboardPage() {
     pollingInterval: 60_000,
   });
 
-  const scanProgress  = useSelector((s: RootState) => s.ws.scanProgress);
-  const lastProcess   = useSelector((s: RootState) => s.ws.lastPostProcess);
-
-  const hasRealProgress = scanProgress !== null && scanProgress.total > 0;
-  const progressPct = hasRealProgress
-    ? Math.min(100, Math.round((scanProgress.done / scanProgress.total) * 100))
-    : 0;
+  const scanProgress    = useSelector(selectScanProgress);
+  const lastProcess     = useSelector(selectLastPostProcess);
+  const hasRealProgress = useSelector(selectHasRealProgress);
+  const progressPct     = useSelector(selectScanProgressPct);
 
   // ── Scan in-progress banner ────────────────────────────────────────────
   const ScanBanner = scanProgress ? (
@@ -477,7 +456,7 @@ export default function DashboardPage() {
             value={scanner.buy_count}
             subtitle={`${scanner.watch_count} watching`}
             icon={<TrendingUp />}
-            color="#22c55e"
+            color={STATUS_COLORS.INVESTMENT}
           />
         </Grid>
         <Grid item xs={6} sm={3}>
@@ -486,7 +465,7 @@ export default function DashboardPage() {
             value={watchlist.total}
             subtitle={`${watchlist.active} active`}
             icon={<Visibility />}
-            color="#f59e0b"
+            color={STATUS_COLORS.WATCH}
           />
         </Grid>
         <Grid item xs={6} sm={3}>
@@ -495,7 +474,7 @@ export default function DashboardPage() {
             value={paper_trading.open_positions}
             subtitle={`${paper_trading.total_trades} total`}
             icon={<SwapHoriz />}
-            color="#6366f1"
+            color={STATUS_COLORS.SWING}
           />
         </Grid>
         <Grid item xs={6} sm={3}>
@@ -504,7 +483,8 @@ export default function DashboardPage() {
             value={`${paper_trading.win_rate.toFixed(1)}%`}
             subtitle={`${paper_trading.winning_trades}W / ${paper_trading.total_trades - paper_trading.winning_trades}L`}
             icon={<EmojiEvents />}
-            color={paper_trading.win_rate >= 50 ? "#22c55e" : "#ef4444"}
+            color={paper_trading.win_rate >= 50 ? STATUS_COLORS.INVESTMENT : "#ef4444"}
+            trend={paper_trading.win_rate >= 50 ? "up" : "down"}
           />
         </Grid>
       </Grid>
@@ -512,60 +492,70 @@ export default function DashboardPage() {
       {/* ── Main content: opportunities + trades ─────────────────────────── */}
       <Grid container spacing={2} mb={2}>
         <Grid item xs={12} md={6}>
-          <Card sx={{ height: "100%" }}>
-            <CardContent sx={{ pb: "12px !important" }}>
-              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                <Typography variant="subtitle2" fontWeight={700}>Recent BUY Opportunities</Typography>
-                <Chip
-                  label={`${recent_opportunities.length} shown`}
-                  size="small"
-                  sx={{ fontSize: "0.65rem", height: 18 }}
-                />
-              </Box>
-              <OpportunitiesSection items={recent_opportunities} />
-            </CardContent>
-          </Card>
+          <ErrorBoundary>
+            <Card sx={{ height: "100%" }}>
+              <CardContent sx={{ pb: "12px !important" }}>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                  <Typography variant="subtitle2" fontWeight={700}>Recent BUY Opportunities</Typography>
+                  <Chip
+                    label={`${recent_opportunities.length} shown`}
+                    size="small"
+                    sx={{ fontSize: "0.65rem", height: 18 }}
+                  />
+                </Box>
+                <OpportunitiesSection items={recent_opportunities} />
+              </CardContent>
+            </Card>
+          </ErrorBoundary>
         </Grid>
 
         <Grid item xs={12} md={6}>
-          <Card sx={{ height: "100%" }}>
-            <CardContent sx={{ pb: "12px !important" }}>
-              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                <Typography variant="subtitle2" fontWeight={700}>Recent Paper Trades</Typography>
-                <Chip
-                  label={`${recent_trades.length} shown`}
-                  size="small"
-                  sx={{ fontSize: "0.65rem", height: 18 }}
-                />
-              </Box>
-              <RecentTradesSection items={recent_trades} />
-            </CardContent>
-          </Card>
+          <ErrorBoundary>
+            <Card sx={{ height: "100%" }}>
+              <CardContent sx={{ pb: "12px !important" }}>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                  <Typography variant="subtitle2" fontWeight={700}>Recent Paper Trades</Typography>
+                  <Chip
+                    label={`${recent_trades.length} shown`}
+                    size="small"
+                    sx={{ fontSize: "0.65rem", height: 18 }}
+                  />
+                </Box>
+                <RecentTradesSection items={recent_trades} />
+              </CardContent>
+            </Card>
+          </ErrorBoundary>
         </Grid>
       </Grid>
 
       {/* ── Bottom row: watchlist + P&L + health ─────────────────────────── */}
       <Grid container spacing={2}>
         <Grid item xs={12} sm={4}>
-          <Card sx={{ height: "100%" }}>
-            <CardContent>
-              <WatchlistPanel wl={watchlist} />
-            </CardContent>
-          </Card>
+          <ErrorBoundary>
+            <Card sx={{ height: "100%" }}>
+              <CardContent>
+                <WatchlistPanel wl={watchlist} />
+              </CardContent>
+            </Card>
+          </ErrorBoundary>
         </Grid>
         <Grid item xs={12} sm={4}>
-          <Card sx={{ height: "100%" }}>
-            <CardContent>
-              <PaperTradingPanel pt={paper_trading} />
-            </CardContent>
-          </Card>
+          <ErrorBoundary>
+            <Card sx={{ height: "100%" }}>
+              <CardContent>
+                <PaperTradingPanel pt={paper_trading} />
+              </CardContent>
+            </Card>
+          </ErrorBoundary>
         </Grid>
         <Grid item xs={12} sm={4}>
-          <Card sx={{ height: "100%" }}>
-            <CardContent>
-              <SystemHealthPanel health={system_health} scanner={scanner} />
-            </CardContent>
-          </Card>
+          <ErrorBoundary>
+            <Card sx={{ height: "100%" }}>
+              <CardContent>
+                <SystemHealthPanel health={system_health} scanner={scanner} />
+              </CardContent>
+            </Card>
+          </ErrorBoundary>
         </Grid>
       </Grid>
     </Box>

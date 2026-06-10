@@ -13,7 +13,9 @@ import { useSnackbar } from "notistack";
 import { useSelector, useDispatch } from "react-redux";
 import { StatCard } from "@/components/ui/StatCard";
 import { GATEBar } from "@/components/ui/GATEBar";
+import { CategoryChip } from "@/components/ui/CategoryChip";
 import { formatCompact, formatPrice, formatIST, formatRR } from "@/lib/formatters";
+import { STATUS_COLORS, GATE_COLOR } from "@/lib/constants";
 import {
   useListStocksQuery,
   useGetStockStatsQuery,
@@ -21,40 +23,16 @@ import {
   useGetSyncStatusQuery,
   stockMasterApi,
 } from "@/store/api/stockMasterApi";
-import type { RootState, AppDispatch } from "@/store";
+import {
+  selectScanProgress,
+  selectIsScanning,
+  selectHasRealProgress,
+  selectScanProgressPct,
+  selectStreamingCount,
+} from "@/store/selectors";
+import type { AppDispatch } from "@/store";
 import type { StockFilters, Stock, SyncTaskStatus } from "@/types/stock";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Business-terminology status chip for signal column
-// ─────────────────────────────────────────────────────────────────────────────
-
-const SIGNAL_DISPLAY: Record<string, { label: string; color: string }> = {
-  INVESTMENT: { label: "Long-Term Buy",  color: "#22c55e" },
-  SWING:      { label: "Swing Buy",      color: "#6366f1" },
-  POSITIONAL: { label: "Positional Buy", color: "#38bdf8" },
-  WATCH:      { label: "Watch",          color: "#f59e0b" },
-  IGNORE:     { label: "No Action",      color: "#64748b" },
-};
-
-function SignalStatusChip({ category }: { category: string | null }) {
-  if (!category) return <Typography variant="caption" color="text.disabled">—</Typography>;
-  const { label, color } = SIGNAL_DISPLAY[category] ?? { label: category, color: "#64748b" };
-  return (
-    <Chip
-      label={label}
-      size="small"
-      sx={{
-        bgcolor: `${color}1a`,
-        color,
-        border: `1px solid ${color}40`,
-        fontWeight: 600,
-        fontSize: "0.62rem",
-        height: 20,
-        maxWidth: 120,
-      }}
-    />
-  );
-}
+import type { SignalCategory } from "@/types/signal";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sync phase dialog
@@ -260,13 +238,11 @@ export default function StocksPage() {
   }, [syncRunning, syncStatus, dispatch, enqueueSnackbar]);
 
   // Live scan state from WebSocket
-  const scanProgress      = useSelector((s: RootState) => s.ws.scanProgress);
-  const streamingSignals  = useSelector((s: RootState) => s.ws.streamingSignals);
-  const isScanning        = scanProgress !== null;
-  const hasRealProgress   = isScanning && (scanProgress?.total ?? 0) > 0;
-  const progressPct       = hasRealProgress
-    ? Math.min(100, Math.round(((scanProgress?.done ?? 0) / (scanProgress?.total ?? 1)) * 100))
-    : 0;
+  const scanProgress       = useSelector(selectScanProgress);
+  const isScanning         = useSelector(selectIsScanning);
+  const hasRealProgress    = useSelector(selectHasRealProgress);
+  const progressPct        = useSelector(selectScanProgressPct);
+  const streamingCount     = useSelector(selectStreamingCount);
 
   const [paginationModel, setPaginationModel] = useState<GridPaginationModel>({ page: 0, pageSize: 100 });
   const [sector, setSector] = useState("");
@@ -380,7 +356,9 @@ export default function StocksPage() {
       field: "latest_category",
       headerName: "Signal Status",
       width: 130,
-      renderCell: (p) => <SignalStatusChip category={p.value} />,
+      renderCell: (p) => p.value
+        ? <CategoryChip category={p.value as SignalCategory} chipSize="xs" />
+        : <Typography color="text.disabled" variant="caption">—</Typography>,
     },
     {
       field: "latest_gate_strength",
@@ -521,13 +499,13 @@ export default function StocksPage() {
           <StatCard label="Total Stocks" value={statsLoading ? "…" : (stats?.total ?? 0).toLocaleString()} icon={<Info />} />
         </Grid>
         <Grid item xs={6} sm={3}>
-          <StatCard label="Enriched" value={statsLoading ? "…" : (stats?.by_sync_status?.enriched ?? 0).toLocaleString()} color="#22c55e" icon={<CheckCircle />} />
+          <StatCard label="Enriched" value={statsLoading ? "…" : (stats?.by_sync_status?.enriched ?? 0).toLocaleString()} color={STATUS_COLORS.INVESTMENT} icon={<CheckCircle />} />
         </Grid>
         <Grid item xs={6} sm={3}>
-          <StatCard label="Pending" value={statsLoading ? "…" : (stats?.by_sync_status?.pending ?? 0).toLocaleString()} color="#f59e0b" icon={<Schedule />} subtitle="awaiting yfinance" />
+          <StatCard label="Pending" value={statsLoading ? "…" : (stats?.by_sync_status?.pending ?? 0).toLocaleString()} color={STATUS_COLORS.WATCH} icon={<Schedule />} subtitle="awaiting yfinance" />
         </Grid>
         <Grid item xs={6} sm={3}>
-          <StatCard label="Failed" value={statsLoading ? "…" : (stats?.by_sync_status?.failed ?? 0).toLocaleString()} color="#ef4444" icon={<ErrorOutline />} subtitle="retry in 6 h" />
+          <StatCard label="Failed" value={statsLoading ? "…" : (stats?.by_sync_status?.failed ?? 0).toLocaleString()} color={GATE_COLOR.FAIL} icon={<ErrorOutline />} subtitle="retry in 6 h" />
         </Grid>
       </Grid>
 
@@ -544,7 +522,7 @@ export default function StocksPage() {
           >
             <strong>Scan running</strong> — GATE results will appear automatically when complete.
             {hasRealProgress
-              ? ` ${scanProgress!.done}/${scanProgress!.total} symbols analysed · ${streamingSignals.length} signals found so far`
+              ? ` ${scanProgress!.done}/${scanProgress!.total} symbols analysed · ${streamingCount} signals found so far`
               : " Fetching data…"}
           </Alert>
           <LinearProgress
@@ -594,6 +572,7 @@ export default function StocksPage() {
 
       {/* Data grid */}
       <DataGrid
+        aria-label="Stock master list"
         rows={data?.items ?? []}
         columns={columns}
         loading={isLoading}

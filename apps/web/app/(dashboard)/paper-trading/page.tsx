@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useCallback, memo } from "react";
 import {
   Box, Card, CardContent, Typography, Chip, Tab, Tabs,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -18,6 +18,7 @@ import {
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { formatPrice, formatPct, formatIST } from "@/lib/formatters";
+import { STATUS_COLORS } from "@/lib/constants";
 import type { Position, Trade } from "@/types/paper_trading";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,10 +44,27 @@ const EXIT_LABEL: Record<string, string> = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Module-level constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SIDE_CHIP_SX = {
+  BUY: {
+    fontSize: "0.62rem", height: 18,
+    bgcolor: `${STATUS_COLORS.INVESTMENT}1e`,
+    color: "success.main",
+  },
+  SELL: {
+    fontSize: "0.62rem", height: 18,
+    bgcolor: "rgba(239,68,68,0.12)",
+    color: "error.main",
+  },
+} as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Performance bar
 // ─────────────────────────────────────────────────────────────────────────────
 
-function MetricPill({
+const MetricPill = memo(function MetricPill({
   label, value, color,
 }: { label: string; value: string; color?: string }) {
   return (
@@ -59,7 +77,7 @@ function MetricPill({
       </Typography>
     </Box>
   );
-}
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sell dialog
@@ -103,7 +121,7 @@ function SellDialog({
     : null;
 
   return (
-    <Dialog open onClose={onClose} maxWidth="xs" fullWidth>
+    <Dialog open onClose={onClose} maxWidth="xs" fullWidth aria-label="Sell position">
       <DialogTitle sx={{ pb: 1 }}>
         Sell {position.symbol}
         <Typography variant="caption" color="text.secondary" display="block">
@@ -180,7 +198,7 @@ function OpenPositionsTab({ onSell }: { onSell: (pos: Position) => void }) {
   }
 
   return (
-    <TableContainer>
+    <TableContainer aria-label="Open positions">
       <Table size="small">
         <TableHead>
           <TableRow>
@@ -290,7 +308,7 @@ function TradeHistoryTab() {
   }
 
   return (
-    <TableContainer>
+    <TableContainer aria-label="Trade history">
       <Table size="small">
         <TableHead>
           <TableRow>
@@ -312,11 +330,7 @@ function TradeHistoryTab() {
                   <Chip
                     label={t.side}
                     size="small"
-                    sx={{
-                      fontSize: "0.62rem", height: 18,
-                      bgcolor: t.side === "BUY" ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
-                      color:   t.side === "BUY" ? "success.main" : "error.main",
-                    }}
+                    sx={t.side === "BUY" ? SIDE_CHIP_SX.BUY : SIDE_CHIP_SX.SELL}
                   />
                 </TableCell>
                 <TableCell sx={{ fontSize: "0.75rem" }}>{t.quantity}</TableCell>
@@ -384,22 +398,22 @@ export default function PaperTradingPage() {
                 <MetricPill
                   label="Total P&L"
                   value={`${perf.total_pnl >= 0 ? "+" : ""}${formatPrice(perf.total_pnl, 0)}`}
-                  color={perf.total_pnl >= 0 ? "#22c55e" : "#ef4444"}
+                  color={perf.total_pnl >= 0 ? STATUS_COLORS.INVESTMENT : "error.main"}
                 />
                 <MetricPill
                   label="Realized"
                   value={`${perf.realized_pnl >= 0 ? "+" : ""}${formatPrice(perf.realized_pnl, 0)}`}
-                  color={perf.realized_pnl >= 0 ? "#22c55e" : "#ef4444"}
+                  color={perf.realized_pnl >= 0 ? STATUS_COLORS.INVESTMENT : "error.main"}
                 />
                 <MetricPill
                   label="Unrealized"
                   value={`${perf.unrealized_pnl >= 0 ? "+" : ""}${formatPrice(perf.unrealized_pnl, 0)}`}
-                  color={perf.unrealized_pnl >= 0 ? "#22c55e" : "#ef4444"}
+                  color={perf.unrealized_pnl >= 0 ? STATUS_COLORS.INVESTMENT : "error.main"}
                 />
                 <MetricPill
                   label="Win Rate"
                   value={`${perf.win_rate.toFixed(1)}%`}
-                  color={perf.win_rate >= 50 ? "#22c55e" : "#ef4444"}
+                  color={perf.win_rate >= 50 ? STATUS_COLORS.INVESTMENT : "error.main"}
                 />
                 <MetricPill
                   label="Open Positions"
@@ -412,12 +426,12 @@ export default function PaperTradingPage() {
                 <MetricPill
                   label="Avg Win"
                   value={perf.avg_win_pct !== 0 ? `+${perf.avg_win_pct.toFixed(1)}%` : "—"}
-                  color="#22c55e"
+                  color={STATUS_COLORS.INVESTMENT}
                 />
                 <MetricPill
                   label="Avg Loss"
                   value={perf.avg_loss_pct !== 0 ? `${perf.avg_loss_pct.toFixed(1)}%` : "—"}
-                  color="#ef4444"
+                  color="error.main"
                 />
                 <MetricPill
                   label="Capital"

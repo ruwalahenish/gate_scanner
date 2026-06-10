@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, memo } from "react";
 import {
   Box, Card, CardContent, Grid, Typography, Chip, Tab, Tabs,
   LinearProgress, CircularProgress, Select, MenuItem,
@@ -22,7 +22,18 @@ import {
 } from "@/store/api/scannerApi";
 import { scanStarted, scanFailed } from "@/store/slices/wsSlice";
 import { formatIST } from "@/lib/formatters";
-import type { RootState, AppDispatch } from "@/store";
+import { STATUS_COLORS } from "@/lib/constants";
+import {
+  selectScanProgress,
+  selectScanStartedAt,
+  selectCompletionSummary,
+  selectCurrentScanId,
+  selectStreamingSignals,
+  selectStreamingBuyCount,
+  selectStreamingWatchCount,
+  selectStreamingNoActCount,
+} from "@/store/selectors";
+import type { AppDispatch } from "@/store";
 import type { Signal, SignalCategory, DisplayStatus } from "@/types/signal";
 import type { StreamingSignal } from "@/types/scan";
 import type { CompletionSummary } from "@/store/slices/wsSlice";
@@ -43,11 +54,30 @@ const SCAN_MODES = [
 type FilterTab = "ALL" | "BUY" | "WATCH" | "NO_ACTION";
 
 const TABS: { value: FilterTab; label: string; color: string }[] = [
-  { value: "ALL",       label: "All",              color: "#94a3b8" },
-  { value: "BUY",       label: "BUY Opportunity",  color: "#22c55e" },
-  { value: "WATCH",     label: "Watch",            color: "#f59e0b" },
-  { value: "NO_ACTION", label: "No Action",        color: "#64748b" },
+  { value: "ALL",       label: "All",              color: "#94a3b8"                   },
+  { value: "BUY",       label: "BUY Opportunity",  color: STATUS_COLORS.INVESTMENT    },
+  { value: "WATCH",     label: "Watch",            color: STATUS_COLORS.WATCH         },
+  { value: "NO_ACTION", label: "No Action",        color: STATUS_COLORS.IGNORE        },
 ];
+
+const FEED_ROW_BASE_SX = {
+  py: 0.4, px: 0.8, borderRadius: 1, bgcolor: "rgba(255,255,255,0.02)",
+} as const;
+
+const FEED_ROW_FIRST_SX = {
+  ...FEED_ROW_BASE_SX,
+  bgcolor: "rgba(99,102,241,0.08)",
+} as const;
+
+function tabChipSx(color: string, isActive: boolean) {
+  return {
+    height: 17,
+    fontSize: "0.62rem",
+    bgcolor: isActive ? `${color}30` : "rgba(255,255,255,0.06)",
+    color: isActive ? color : "text.secondary",
+    fontWeight: 600,
+  } as const;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Convert StreamingSignal → Signal shape for table rendering
@@ -144,28 +174,30 @@ const BUY_CATS = new Set(["INVESTMENT", "SWING", "POSITIONAL"]);
 // Rich scan detail panel (replaces thin banner)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ScanDetailPanel({
+const ScanDetailPanel = memo(function ScanDetailPanel({
   progress,
   streamingSignals,
   scanStartedAt,
   onStop,
   isStopping,
+  buyCount,
+  watchCount,
+  noActCount,
 }: {
   progress: { done: number; total: number };
   streamingSignals: StreamingSignal[];
   scanStartedAt: number | null;
   onStop: () => void;
   isStopping: boolean;
+  buyCount: number;
+  watchCount: number;
+  noActCount: number;
 }) {
   const elapsed  = useElapsedSeconds(scanStartedAt);
   const hasReal  = progress.total > 0;
   const pct      = hasReal ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
   const rate     = elapsed > 2 ? progress.done / elapsed : 0;
   const etaSec   = rate > 0 ? Math.round((progress.total - progress.done) / rate) : null;
-
-  const buyCount      = streamingSignals.filter(s => BUY_CATS.has(s.category)).length;
-  const watchCount    = streamingSignals.filter(s => s.category === "WATCH").length;
-  const noActCount    = streamingSignals.filter(s => s.category === "IGNORE").length;
 
   // Last 10 signals in reverse order (newest first)
   const recentFeed = useMemo(
@@ -180,7 +212,7 @@ function ScanDetailPanel({
         {/* ── Header ────────────────────────────────────────────────────── */}
         <Box display="flex" alignItems="center" justifyContent="space-between" mb={1.5}>
           <Box display="flex" alignItems="center" gap={1}>
-            <CircularProgress size={16} thickness={5} sx={{ color: "#6366f1" }} />
+            <CircularProgress size={16} thickness={5} sx={{ color: STATUS_COLORS.SWING }} />
             <Typography variant="subtitle2" fontWeight={700}>GATE Scan Running</Typography>
           </Box>
           <Stack direction="row" spacing={1.5} alignItems="center">
@@ -198,6 +230,7 @@ function ScanDetailPanel({
               color="error"
               disabled={isStopping}
               onClick={onStop}
+              aria-label="Stop current scan"
               startIcon={isStopping ? <CircularProgress size={12} color="inherit" /> : undefined}
               sx={{ fontSize: "0.72rem", py: 0.3, minWidth: 88 }}
             >
@@ -230,9 +263,9 @@ function ScanDetailPanel({
         {/* ── Signal counters ───────────────────────────────────────────── */}
         <Grid container spacing={1.5} mb={recentFeed.length > 0 ? 1.5 : 0}>
           {[
-            { label: "BUY Signals",   count: buyCount,   color: "#22c55e", Icon: TrendingUp       },
-            { label: "Watch",          count: watchCount,  color: "#f59e0b", Icon: Visibility       },
-            { label: "No Action",      count: noActCount,  color: "#64748b", Icon: DoNotDisturbAlt  },
+            { label: "BUY Signals", count: buyCount,   color: STATUS_COLORS.INVESTMENT, Icon: TrendingUp      },
+            { label: "Watch",       count: watchCount,  color: STATUS_COLORS.WATCH,      Icon: Visibility      },
+            { label: "No Action",   count: noActCount,  color: STATUS_COLORS.IGNORE,     Icon: DoNotDisturbAlt },
           ].map(({ label, count, color, Icon }) => (
             <Grid item xs={4} key={label}>
               <Box
@@ -263,14 +296,13 @@ function ScanDetailPanel({
             <Stack spacing={0.35}>
               {recentFeed.map((sig, i) => {
                 const isBuy = BUY_CATS.has(sig.category);
-                const col   = isBuy ? "#22c55e" : sig.category === "WATCH" ? "#f59e0b" : "#64748b";
+                const col   = isBuy ? STATUS_COLORS.INVESTMENT : sig.category === "WATCH" ? STATUS_COLORS.WATCH : STATUS_COLORS.IGNORE;
                 const meta  = CATEGORY_DISPLAY[sig.category as SignalCategory];
                 return (
                   <Box
                     key={`${sig.symbol}-${i}`}
                     display="flex" alignItems="center" gap={1.5}
-                    sx={{ py: 0.4, px: 0.8, borderRadius: 1, bgcolor: "rgba(255,255,255,0.02)",
-                      "&:first-of-type": { bgcolor: "rgba(99,102,241,0.08)" } }}
+                    sx={i === 0 ? FEED_ROW_FIRST_SX : FEED_ROW_BASE_SX}
                   >
                     <Typography variant="caption" fontWeight={700} sx={{ minWidth: 80 }}>
                       {sig.symbol}
@@ -310,13 +342,13 @@ function ScanDetailPanel({
       </CardContent>
     </Card>
   );
-}
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Scan completion summary card
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ScanCompletionCard({ summary }: { summary: CompletionSummary }) {
+const ScanCompletionCard = memo(function ScanCompletionCard({ summary }: { summary: CompletionSummary }) {
   return (
     <Card sx={{ mb: 2, bgcolor: "rgba(34,197,94,0.05)", border: "1px solid rgba(34,197,94,0.2)" }}>
       <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
@@ -329,22 +361,22 @@ function ScanCompletionCard({ summary }: { summary: CompletionSummary }) {
         </Box>
         <Stack direction="row" spacing={3}>
           <Box>
-            <Typography variant="body2" fontWeight={700} color="#22c55e">{summary.buy_count}</Typography>
+            <Typography variant="body2" fontWeight={700} color={STATUS_COLORS.INVESTMENT}>{summary.buy_count}</Typography>
             <Typography variant="caption" color="text.secondary">BUY Signals</Typography>
           </Box>
           <Box>
-            <Typography variant="body2" fontWeight={700} color="#f59e0b">{summary.watch_count}</Typography>
+            <Typography variant="body2" fontWeight={700} color={STATUS_COLORS.WATCH}>{summary.watch_count}</Typography>
             <Typography variant="caption" color="text.secondary">Watch</Typography>
           </Box>
           <Box>
-            <Typography variant="body2" fontWeight={700} color="#64748b">{summary.no_action_count}</Typography>
+            <Typography variant="body2" fontWeight={700} color={STATUS_COLORS.IGNORE}>{summary.no_action_count}</Typography>
             <Typography variant="caption" color="text.secondary">No Action</Typography>
           </Box>
         </Stack>
       </CardContent>
     </Card>
   );
-}
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main scanner page
@@ -353,11 +385,14 @@ function ScanCompletionCard({ summary }: { summary: CompletionSummary }) {
 export default function ScannerPage() {
   const dispatch = useDispatch<AppDispatch>();
 
-  const scanProgress          = useSelector((s: RootState) => s.ws.scanProgress);
-  const scanStartedAt         = useSelector((s: RootState) => s.ws.scanStartedAt);
-  const lastCompletionSummary = useSelector((s: RootState) => s.ws.lastCompletionSummary);
-  const currentScanId         = useSelector((s: RootState) => s.ws.currentScanId);
-  const streamingRaw          = useSelector((s: RootState) => s.ws.streamingSignals);
+  const scanProgress          = useSelector(selectScanProgress);
+  const scanStartedAt         = useSelector(selectScanStartedAt);
+  const lastCompletionSummary = useSelector(selectCompletionSummary);
+  const currentScanId         = useSelector(selectCurrentScanId);
+  const streamingRaw          = useSelector(selectStreamingSignals);
+  const streamingBuyCount     = useSelector(selectStreamingBuyCount);
+  const streamingWatchCount   = useSelector(selectStreamingWatchCount);
+  const streamingNoActCount   = useSelector(selectStreamingNoActCount);
 
   const [activeTab, setActiveTab]   = useState<FilterTab>("ALL");
   const [scanMode, setScanMode]     = useState("nifty500");
@@ -391,25 +426,24 @@ export default function ScannerPage() {
     }
   }, [scans, dispatch]);
 
-  const handleStopScan = async () => {
+  const handleStopScan = useCallback(async () => {
     const id = currentScanId ?? scans?.find(s => s.status === "pending" || s.status === "running")?.id;
     if (!id) return;
     try {
       await stopScan(id).unwrap();
-      dispatch(scanFailed());              // reset UI immediately without waiting for WS round-trip
+      dispatch(scanFailed());
     } catch (err: any) {
       if (err?.status === 409) {
-        dispatch(scanFailed());            // scan already finished — just clear local state
+        dispatch(scanFailed());
       }
     }
-  };
+  }, [currentScanId, scans, stopScan, dispatch]);
 
-  const handleRunScan = async () => {
+  const handleRunScan = useCallback(async () => {
     try {
       const { scan_id } = await triggerScan({ mode: scanMode }).unwrap();
       dispatch(scanStarted(scan_id));
     } catch (err: any) {
-      // 409 = scan already in progress — sync UI state
       if (err?.status === 409) {
         const runningScan = scans?.find(
           (s) => s.status === "pending" || s.status === "running"
@@ -423,7 +457,7 @@ export default function ScannerPage() {
         console.error("Scan failed to start", err);
       }
     }
-  };
+  }, [triggerScan, scanMode, scans, dispatch]);
 
   // ── Fetched signals (post-scan, paginated) ─────────────────────────────
   // Signals are always daily (signal_timeframe="1d") — no TF filter needed.
@@ -542,6 +576,9 @@ export default function ScannerPage() {
           scanStartedAt={scanStartedAt}
           onStop={handleStopScan}
           isStopping={isStopping}
+          buyCount={streamingBuyCount}
+          watchCount={streamingWatchCount}
+          noActCount={streamingNoActCount}
         />
       )}
       {!scanProgress && lastCompletionSummary && (
@@ -580,13 +617,7 @@ export default function ScannerPage() {
                         <Chip
                           label={count}
                           size="small"
-                          sx={{
-                            height: 17,
-                            fontSize: "0.62rem",
-                            bgcolor: activeTab === value ? `${color}30` : "rgba(255,255,255,0.06)",
-                            color: activeTab === value ? color : "text.secondary",
-                            fontWeight: 600,
-                          }}
+                          sx={tabChipSx(color, activeTab === value)}
                         />
                       )}
                     </Box>

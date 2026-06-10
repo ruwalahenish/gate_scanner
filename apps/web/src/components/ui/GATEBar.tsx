@@ -1,5 +1,7 @@
 "use client";
 import { Box, LinearProgress, Typography, Tooltip } from "@mui/material";
+import { GATE_THRESHOLDS, GATE_COLOR } from "@/lib/constants";
+import { memo } from "react";
 
 interface GATEBarProps {
   score: number | null;
@@ -7,13 +9,13 @@ interface GATEBarProps {
 }
 
 function getColor(score: number): string {
-  if (score >= 70) return "#22c55e";
-  if (score >= 55) return "#6366f1";
-  if (score >= 40) return "#f59e0b";
-  return "#ef4444";
+  if (score >= GATE_THRESHOLDS.HIGH) return GATE_COLOR.HIGH;
+  if (score >= GATE_THRESHOLDS.MID)  return GATE_COLOR.MID;
+  if (score >= GATE_THRESHOLDS.LOW)  return GATE_COLOR.LOW;
+  return GATE_COLOR.FAIL;
 }
 
-export function GATEBar({ score, showLabel = true }: GATEBarProps) {
+export const GATEBar = memo(function GATEBar({ score, showLabel = true }: GATEBarProps) {
   if (score == null) return <Typography variant="caption" color="text.disabled">—</Typography>;
   const color = getColor(score);
   return (
@@ -27,7 +29,11 @@ export function GATEBar({ score, showLabel = true }: GATEBarProps) {
             height: 5,
             borderRadius: 3,
             bgcolor: "rgba(255,255,255,0.06)",
-            "& .MuiLinearProgress-bar": { bgcolor: color, borderRadius: 3 },
+            "& .MuiLinearProgress-bar": {
+              bgcolor: color,
+              borderRadius: 3,
+              transition: "transform 400ms ease",
+            },
           }}
         />
         {showLabel && (
@@ -38,4 +44,4 @@ export function GATEBar({ score, showLabel = true }: GATEBarProps) {
       </Box>
     </Tooltip>
   );
-}
+});

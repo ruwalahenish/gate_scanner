@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import {
   Box, Typography, Card, CardContent, Grid, TextField, Button,
@@ -14,9 +14,9 @@ import {
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { enqueueSnackbar } from "notistack";
-import { API_URL } from "@/lib/constants";
+import { API_URL, STATUS_COLORS } from "@/lib/constants";
 import { formatPrice, formatCompact } from "@/lib/formatters";
-import type { RootState } from "@/store";
+import { selectBacktestLive } from "@/store/selectors";
 import type { AppDispatch } from "@/store";
 import {
   backtestLiveReset,
@@ -65,7 +65,7 @@ async function getJson(url: string) {
 
 // ── Metric card ───────────────────────────────────────────────────────────────
 
-function MetricCard({
+const MetricCard = memo(function MetricCard({
   label, value, sub, sentiment,
 }: {
   label: string; value: string; sub?: string;
@@ -86,11 +86,11 @@ function MetricCard({
       </CardContent>
     </Card>
   );
-}
+});
 
 // ── History row ───────────────────────────────────────────────────────────────
 
-function HistoryRow({
+const HistoryRow = memo(function HistoryRow({
   bt, onLoad, onStop, onReattach,
 }: {
   bt: BtResult;
@@ -159,6 +159,7 @@ function HistoryRow({
       {canStop && (
         <Button
           size="small" variant="outlined" color="error"
+          aria-label={`Stop backtest ${bt.id.slice(0, 8)}`}
           startIcon={<StopIcon sx={{ fontSize: 14 }} />}
           onClick={(e) => { e.stopPropagation(); onStop!(bt.id); }}
           sx={{ minWidth: 80, fontSize: "0.7rem", py: 0.25 }}
@@ -168,7 +169,7 @@ function HistoryRow({
       )}
     </Box>
   );
-}
+});
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -190,7 +191,7 @@ export default function BacktestPage() {
 
   // Live streaming state from Redux
   const { stockResults: liveStockResults, progress: backtestProgress } =
-    useSelector((s: RootState) => s.ws.backtestLive);
+    useSelector(selectBacktestLive);
 
   const [startDate, setStartDate] = useState("2022-01-01");
   const [endDate, setEndDate]     = useState(todayISO);
@@ -325,7 +326,7 @@ export default function BacktestPage() {
     enqueueSnackbar("Watching running backtest — results will update live", { variant: "info" });
   }, [dispatch, startPolling]);
 
-  const handleRun = async () => {
+  const handleRun = useCallback(async () => {
     setError("");
     if (!startDate) { setError("Start Date is required."); return; }
     if (!endDate)   { setError("End Date is required."); return; }
@@ -355,9 +356,9 @@ export default function BacktestPage() {
       clearInterval(timerRef.current!);
       setError(String(err)); setRunning(false); setActiveBacktestId(null);
     }
-  };
+  }, [startDate, endDate, capital, universe, dispatch, startPolling]);
 
-  const handleStop = async (id: string) => {
+  const handleStop = useCallback(async (id: string) => {
     if (cancelling) return;
     setCancelling(true);
     try {
@@ -372,7 +373,7 @@ export default function BacktestPage() {
     } finally {
       setCancelling(false);
     }
-  };
+  }, [cancelling]);
 
   // Derived stats from result (shown in metric cards after completion)
   const totalReturn = result?.final_equity != null
@@ -542,7 +543,7 @@ export default function BacktestPage() {
               </Typography>
             </Box>
 
-            <TableContainer sx={{ maxHeight: 340 }}>
+            <TableContainer sx={{ maxHeight: 340 }} aria-label="Per-stock backtest results">
               <Table size="small" stickyHeader>
                 <TableHead>
                   <TableRow>
@@ -884,17 +885,17 @@ export default function BacktestPage() {
                   <AreaChart data={equityCurve} margin={{ left: 8, right: 16 }}>
                     <defs>
                       <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.35} />
-                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                        <stop offset="5%"  stopColor={STATUS_COLORS.SWING} stopOpacity={0.35} />
+                        <stop offset="95%" stopColor={STATUS_COLORS.SWING} stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                     <XAxis
-                      dataKey="curve_date" stroke="#64748b"
+                      dataKey="curve_date" stroke={STATUS_COLORS.IGNORE}
                       tick={{ fontSize: 10 }} interval="preserveStartEnd"
                     />
                     <YAxis
-                      stroke="#64748b" tick={{ fontSize: 10 }} width={72}
+                      stroke={STATUS_COLORS.IGNORE} tick={{ fontSize: 10 }} width={72}
                       tickFormatter={v => formatCompact(v)}
                     />
                     <RechartsTooltip
@@ -907,12 +908,12 @@ export default function BacktestPage() {
                       labelStyle={{ color: "#94a3b8", fontSize: 11 }}
                     />
                     <ReferenceLine
-                      y={result.initial_capital} stroke="#f59e0b" strokeDasharray="4 4"
-                      label={{ value: "Invested", fill: "#f59e0b", fontSize: 9, position: "insideTopRight" }}
+                      y={result.initial_capital} stroke={STATUS_COLORS.WATCH} strokeDasharray="4 4"
+                      label={{ value: "Invested", fill: STATUS_COLORS.WATCH, fontSize: 9, position: "insideTopRight" }}
                     />
                     <Area
                       type="monotone" dataKey="equity"
-                      stroke="#6366f1" fill="url(#eqGrad)"
+                      stroke={STATUS_COLORS.SWING} fill="url(#eqGrad)"
                       strokeWidth={2} dot={false} activeDot={{ r: 4 }}
                     />
                   </AreaChart>

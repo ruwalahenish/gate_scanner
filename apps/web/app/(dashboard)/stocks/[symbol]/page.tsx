@@ -16,6 +16,7 @@ import { GATEChart } from "@/components/domain/GATEChart";
 import { CategoryChip } from "@/components/ui/CategoryChip";
 import { StatCard } from "@/components/ui/StatCard";
 import { formatPrice, formatPct, formatRR, formatScore, formatIST, formatCompact } from "@/lib/formatters";
+import { STATUS_COLORS, GATE_COLOR } from "@/lib/constants";
 import {
   useGetStockQuery,
   useGetStockChartDataQuery,
@@ -42,10 +43,10 @@ const TIMEFRAMES = [
 const TERMINAL_STATUSES = new Set(["done", "failed", "cancelled"]);
 
 function tradeStatus(exitReason: string | null): { label: string; color: string } {
-  if (!exitReason) return { label: "Open", color: "#f59e0b" };
-  if (exitReason === "SL") return { label: "SL Hit", color: "#ef4444" };
-  if (["T1", "T2", "T3", "TRAIL"].includes(exitReason)) return { label: "Target Hit", color: "#22c55e" };
-  return { label: "Closed", color: "#6b7280" };
+  if (!exitReason) return { label: "Open",       color: STATUS_COLORS.WATCH      };
+  if (exitReason === "SL") return { label: "SL Hit",     color: GATE_COLOR.FAIL  };
+  if (["T1", "T2", "T3", "TRAIL"].includes(exitReason)) return { label: "Target Hit", color: STATUS_COLORS.INVESTMENT };
+  return { label: "Closed", color: STATUS_COLORS.IGNORE };
 }
 
 const BACKTEST_COLUMNS: GridColDef<BacktestTrade>[] = [
@@ -315,6 +316,7 @@ export default function StockDetailPage() {
           startIcon={<ArrowBack />}
           size="small"
           onClick={() => router.push("/stocks")}
+          aria-label="Go back to stocks list"
           sx={{ minWidth: "auto" }}
         >
           Stocks
@@ -360,7 +362,7 @@ export default function StockDetailPage() {
       </Box>
 
       {/* Tabs */}
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} aria-label="Stock detail sections" sx={{ mb: 2, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
         <Tab label="Chart" />
         <Tab label="GATE Analysis" />
         <Tab label="Backtest History" />
@@ -370,7 +372,7 @@ export default function StockDetailPage() {
       {tab === 0 && (
         <Box>
           <Stack direction="row" alignItems="center" spacing={1.5} mb={1.5}>
-            <FormControl size="small" sx={{ minWidth: 110 }}>
+            <FormControl size="small" sx={{ minWidth: 110 }} aria-label="Chart timeframe">
               <Select value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
                 {TIMEFRAMES.map((tf) => <MenuItem key={tf.value} value={tf.value}>{tf.label}</MenuItem>)}
               </Select>
@@ -399,13 +401,13 @@ export default function StockDetailPage() {
               </Typography>
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6} md={3}>
-                  <LevelRow label="Entry" value={signalLevels.entry ?? null} color="#6366f1" />
-                  <LevelRow label="Stop Loss" value={signalLevels.stop_loss ?? null} color="#ef4444" />
+                  <LevelRow label="Entry" value={signalLevels.entry ?? null} color={STATUS_COLORS.SWING} />
+                  <LevelRow label="Stop Loss" value={signalLevels.stop_loss ?? null} color={GATE_COLOR.FAIL} />
                 </Grid>
                 <Grid item xs={12} sm={6} md={3}>
-                  <LevelRow label="Target 1" value={signalLevels.t1 ?? null} color="#4ade80" />
-                  {(signalLevels as any).t2 && <LevelRow label="Target 2" value={(signalLevels as any).t2} color="#22c55e" />}
-                  {(signalLevels as any).t3 && <LevelRow label="Target 3" value={(signalLevels as any).t3} color="#16a34a" />}
+                  <LevelRow label="Target 1" value={signalLevels.t1 ?? null} color="success.light" />
+                  {(signalLevels as any).t2 && <LevelRow label="Target 2" value={(signalLevels as any).t2} color={STATUS_COLORS.INVESTMENT} />}
+                  {(signalLevels as any).t3 && <LevelRow label="Target 3" value={(signalLevels as any).t3} color="success.dark" />}
                 </Grid>
                 {stock?.latest_rr_t1 && (
                   <Grid item xs={12} sm={6} md={3}>
@@ -486,13 +488,13 @@ export default function StockDetailPage() {
                   </Box>
                   <Grid container spacing={2}>
                     <Grid item xs={6} sm={3}>
-                      <LevelRow label="Entry"     value={sig.entry}     color="#6366f1" />
-                      <LevelRow label="Stop Loss" value={sig.stop_loss} color="#ef4444" />
+                      <LevelRow label="Entry"     value={sig.entry}     color={STATUS_COLORS.SWING} />
+                      <LevelRow label="Stop Loss" value={sig.stop_loss} color={GATE_COLOR.FAIL} />
                     </Grid>
                     <Grid item xs={6} sm={3}>
-                      <LevelRow label="T1" value={sig.T1} color="#4ade80" />
-                      <LevelRow label="T2" value={sig.T2} color="#22c55e" />
-                      <LevelRow label="T3" value={sig.T3} color="#16a34a" />
+                      <LevelRow label="T1" value={sig.T1} color="success.light" />
+                      <LevelRow label="T2" value={sig.T2} color={STATUS_COLORS.INVESTMENT} />
+                      <LevelRow label="T3" value={sig.T3} color="success.dark" />
                     </Grid>
                     <Grid item xs={6} sm={3}>
                       <Box display="flex" justifyContent="space-between" py={0.5}>
@@ -599,6 +601,7 @@ export default function StockDetailPage() {
                     startIcon={<Stop />}
                     onClick={handleStopScan}
                     disabled={isCancelling}
+                    aria-label="Stop stock backtest scan"
                     sx={{ mt: 0.5 }}
                   >
                     Stop Scan
@@ -646,21 +649,21 @@ export default function StockDetailPage() {
                   <StatCard
                     label="Win Rate"
                     value={winRate != null ? `${winRate}%` : "—"}
-                    color={winRate != null && winRate >= 50 ? "#22c55e" : "#ef4444"}
+                    color={winRate != null && winRate >= 50 ? STATUS_COLORS.INVESTMENT : GATE_COLOR.FAIL}
                   />
                 </Grid>
                 <Grid item xs={6} sm={3}>
                   <StatCard
                     label="Total P&L"
                     value={totalPnlAbs != null ? `${totalPnlAbs >= 0 ? "+" : ""}${formatPrice(totalPnlAbs)}` : "—"}
-                    color={totalPnlAbs != null && totalPnlAbs >= 0 ? "#22c55e" : "#ef4444"}
+                    color={totalPnlAbs != null && totalPnlAbs >= 0 ? STATUS_COLORS.INVESTMENT : GATE_COLOR.FAIL}
                   />
                 </Grid>
                 <Grid item xs={6} sm={3}>
                   <StatCard
                     label="ROI"
                     value={roi != null ? `${roi >= 0 ? "+" : ""}${roi.toFixed(1)}%` : "—"}
-                    color={roi != null && roi >= 0 ? "#22c55e" : "#ef4444"}
+                    color={roi != null && roi >= 0 ? STATUS_COLORS.INVESTMENT : GATE_COLOR.FAIL}
                   />
                 </Grid>
               </Grid>
@@ -671,28 +674,28 @@ export default function StockDetailPage() {
                   <StatCard
                     label="Avg P&L"
                     value={avgPnl != null ? formatPct(avgPnl) : "—"}
-                    color={avgPnl != null && avgPnl >= 0 ? "#22c55e" : "#ef4444"}
+                    color={avgPnl != null && avgPnl >= 0 ? STATUS_COLORS.INVESTMENT : GATE_COLOR.FAIL}
                   />
                 </Grid>
                 <Grid item xs={6} sm={3}>
                   <StatCard
                     label="Best Trade"
                     value={bestTrade != null ? formatPct(bestTrade) : "—"}
-                    color="#22c55e"
+                    color={STATUS_COLORS.INVESTMENT}
                   />
                 </Grid>
                 <Grid item xs={6} sm={3}>
                   <StatCard
                     label="CAGR"
                     value={cagr != null ? `${(cagr * 100).toFixed(1)}%` : "—"}
-                    color={cagr != null && cagr >= 0 ? "#22c55e" : "#ef4444"}
+                    color={cagr != null && cagr >= 0 ? STATUS_COLORS.INVESTMENT : GATE_COLOR.FAIL}
                   />
                 </Grid>
                 <Grid item xs={6} sm={3}>
                   <StatCard
                     label="Max Drawdown"
                     value={maxDrawdown != null ? `${(maxDrawdown * 100).toFixed(1)}%` : "—"}
-                    color="#ef4444"
+                    color={GATE_COLOR.FAIL}
                   />
                 </Grid>
               </Grid>

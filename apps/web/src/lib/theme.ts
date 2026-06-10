@@ -30,11 +30,71 @@ export const theme = createTheme({
       "Segoe UI",
       "sans-serif",
     ].join(","),
-    body2:   { fontVariantNumeric: "tabular-nums" },
+    h6: {
+      fontWeight: 700,
+      fontSize: "1rem",
+      lineHeight: 1.4,
+    },
+    subtitle1: {
+      fontWeight: 600,
+      fontSize: "0.875rem",
+    },
+    subtitle2: {
+      fontWeight: 700,
+      fontSize: "0.8125rem",
+    },
+    body2:   { fontVariantNumeric: "tabular-nums", fontSize: "0.8125rem" },
     caption: { fontVariantNumeric: "tabular-nums" },
+    overline: {
+      fontSize: "0.65rem",
+      fontWeight: 600,
+      letterSpacing: "0.08em",
+      lineHeight: 1.6,
+    },
   },
 
   shape: { borderRadius: 8 },
+
+  // Custom shadow scale for dark-theme depth (indices 1,2,4,8 overridden).
+  shadows: [
+    "none",
+    "0 1px 4px rgba(0,0,0,0.4)",
+    "0 2px 12px rgba(0,0,0,0.5)",
+    "0 2px 16px rgba(0,0,0,0.5)",
+    "0 4px 24px rgba(0,0,0,0.6)",
+    "0 4px 24px rgba(0,0,0,0.65)",
+    "0 6px 32px rgba(0,0,0,0.65)",
+    "0 6px 32px rgba(0,0,0,0.7)",
+    "0 8px 40px rgba(0,0,0,0.7)",
+    "0 8px 40px rgba(0,0,0,0.75)",
+    "0 10px 48px rgba(0,0,0,0.75)",
+    "0 10px 48px rgba(0,0,0,0.8)",
+    "0 12px 56px rgba(0,0,0,0.8)",
+    "0 12px 56px rgba(0,0,0,0.82)",
+    "0 14px 60px rgba(0,0,0,0.82)",
+    "0 14px 60px rgba(0,0,0,0.85)",
+    "0 16px 64px rgba(0,0,0,0.85)",
+    "0 16px 64px rgba(0,0,0,0.87)",
+    "0 18px 68px rgba(0,0,0,0.87)",
+    "0 18px 68px rgba(0,0,0,0.9)",
+    "0 20px 72px rgba(0,0,0,0.9)",
+    "0 20px 72px rgba(0,0,0,0.92)",
+    "0 22px 76px rgba(0,0,0,0.92)",
+    "0 24px 80px rgba(0,0,0,0.94)",
+    "0 24px 80px rgba(0,0,0,0.95)",
+  ],
+
+  transitions: {
+    duration: {
+      shortest:   150,
+      shorter:    200,
+      short:      250,
+      standard:   300,
+      complex:    375,
+      enteringScreen: 225,
+      leavingScreen:  195,
+    },
+  },
 
   components: {
     // ── Global baseline ─────────────────────────────────────────────────
@@ -50,6 +110,20 @@ export const theme = createTheme({
             "&:hover": { background: "#3d3d58" },
           },
         },
+        // Focus-visible: show outline only on keyboard navigation, not mouse clicks.
+        "*, *::before, *::after": {
+          "&:focus-visible": {
+            outline: "2px solid rgba(99,102,241,0.7)",
+            outlineOffset: 2,
+          },
+          "&:focus:not(:focus-visible)": {
+            outline: "none",
+          },
+        },
+        // Suppress double-ring on MUI Tabs which manage their own focus indicator.
+        ".MuiTab-root:focus-visible": {
+          outline: "none",
+        },
       },
     },
 
@@ -59,8 +133,11 @@ export const theme = createTheme({
         root: {
           backgroundImage: "none",
           border: "1px solid rgba(255,255,255,0.07)",
-          "&:hover": { borderColor: "rgba(255,255,255,0.1)" },
-          transition: "border-color 0.15s ease",
+          transition: "border-color 200ms ease, box-shadow 200ms ease",
+          "&:hover": {
+            borderColor: "rgba(255,255,255,0.1)",
+            boxShadow: "0 2px 12px rgba(0,0,0,0.5)",
+          },
         },
       },
     },
@@ -100,6 +177,7 @@ export const theme = createTheme({
         root: {
           textTransform: "none",
           fontWeight: 500,
+          transition: "box-shadow 200ms ease, background-color 200ms ease",
           "&.MuiButton-containedPrimary": {
             boxShadow: "0 1px 6px rgba(99,102,241,0.3)",
             "&:hover": { boxShadow: "0 2px 12px rgba(99,102,241,0.45)" },
@@ -110,7 +188,13 @@ export const theme = createTheme({
     MuiIconButton: {
       styleOverrides: {
         root: {
+          borderRadius: "8px",
+          transition: "background-color 150ms ease",
           "&:hover": { bgcolor: "rgba(255,255,255,0.06)" },
+          "&:focus-visible": {
+            outline: "2px solid rgba(99,102,241,0.6)",
+            outlineOffset: 2,
+          },
         },
       },
     },
@@ -118,7 +202,10 @@ export const theme = createTheme({
     // ── Chip ────────────────────────────────────────────────────────────
     MuiChip: {
       styleOverrides: {
-        root: { fontWeight: 500 },
+        root: {
+          fontWeight: 500,
+          transition: "background-color 150ms ease, border-color 150ms ease",
+        },
       },
     },
 
@@ -140,6 +227,7 @@ export const theme = createTheme({
           fontWeight: 500,
           minHeight: 40,
           color: "#64748b",
+          transition: "color 150ms ease",
           "&.Mui-selected": { color: "#818cf8", fontWeight: 600 },
           "&:hover":        { color: "#94a3b8" },
         },
@@ -248,6 +336,29 @@ export const theme = createTheme({
           maxWidth: 260,
         },
         arrow: { color: "#2d2d40" },
+      },
+    },
+
+    // ── ListItemButton ───────────────────────────────────────────────────
+    MuiListItemButton: {
+      styleOverrides: {
+        root: {
+          transition: "background-color 150ms ease",
+          "&.Mui-selected": {
+            "&:hover": { backgroundColor: "rgba(99,102,241,0.2)" },
+          },
+        },
+      },
+    },
+
+    // ── Drawer ──────────────────────────────────────────────────────────
+    MuiDrawer: {
+      styleOverrides: {
+        paper: {
+          "@media (max-width: 899px)": {
+            boxShadow: "4px 0 24px rgba(0,0,0,0.6)",
+          },
+        },
       },
     },
 
