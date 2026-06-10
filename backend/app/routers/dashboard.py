@@ -51,7 +51,7 @@ async def get_dashboard():
 
     try:
         pool = get_pool()
-        async with pool.acquire() as conn:
+        async with pool.acquire(timeout=10) as conn:
             result = await _build(conn, redis)
     except Exception as exc:
         log.warning("dashboard_build_failed", error=str(exc))
