@@ -92,7 +92,8 @@ gate_scanner/
 │   │   ├── routers/            # FastAPI route handlers (one file per domain)
 │   │   ├── queries/            # raw asyncpg SQL — no ORM
 │   │   ├── services/           # scan_service (async wrapper), ws_manager, alert_engine,
-│   │   │                       # automation_service (auto paper trades), price_service
+│   │   │                       # automation_service (auto paper trades), price_service,
+│   │   │                       # stock_service (fundamentals enrichment thread pool)
 │   │   ├── tasks/              # Celery: scanner_tasks, backtest_tasks, stock_tasks,
 │   │   │                       # trading_tasks, celery_app
 │   │   ├── models/             # Pydantic request/response models
@@ -120,7 +121,7 @@ gate_scanner/
 - **Database**: NeonDB (PostgreSQL 16) via `asyncpg` connection pool. No ORM — raw SQL lives in `app/queries/`.
 - **Cache/Broker**: Redis — Celery broker+backend, pub/sub for real-time events.
 - **Workers**: Celery processes CPU-bound scan and backtest jobs off the FastAPI event loop.
-- **Observability**: Prometheus metrics exposed at `/metrics` (via `app/metrics.py`). Structured logs via `structlog` with per-request `X-Request-ID` correlation. API docs at `/api/docs`. Extended health check at `/api/health/detailed` (DB pool stats, Redis ping, last scan info).
+- **Observability**: Prometheus metrics exposed at `/metrics` (via `app/metrics.py`). Structured logs via `structlog` with per-request `X-Request-ID` correlation — `ConsoleRenderer` in dev, swap for `JSONRenderer` in production. API docs at `/api/docs`. Extended health check at `/api/health/detailed` (DB pool stats, Redis ping, last scan info).
 - **Rate limiting**: `slowapi` enforces 200 requests/minute per IP globally; `/api/health` and `/metrics` are exempt.
 
 ### Celery Beat schedule
@@ -184,7 +185,7 @@ After each scan completes, `automation_service.py` fires: WATCH-category signals
 ### Router versioning
 All routers are mounted under both `/api` and `/api/v1` prefixes (see `main.py`). The `signals` router is marked legacy and will be unmounted in M5. New endpoints should be domain-namespaced (e.g., `/api/v1/stocks`, not `/api/v1/signals`).
 
-Active routers: `dashboard`, `scans`, `signals` (legacy), `paper_trading`, `universe`, `watchlist`, `market`, `backtests`, `stock_master`, `internal`. The `internal` router exposes task-trigger endpoints for external cron services (cron-job.org); all require the `INTERNAL_SECRET` bearer token.
+Active routers: `dashboard`, `scans`, `signals` (legacy), `paper_trading`, `universe`, `watchlist`, `market`, `backtests`, `stock_master`, `internal`. URL prefixes to note: `stock_master` mounts at `/api/stocks` (not `/stock_master`); `paper_trading` mounts at `/api/paper-trading`. A `portfolio.py` router file exists but is **not mounted** — it is a legacy remnant. The `internal` router is the only router **not** dual-versioned; it mounts only at `/api/internal` (no `/api/v1/internal`). All `internal` endpoints require the `INTERNAL_SECRET` bearer token.
 
 ### Key design decisions
 
