@@ -11,9 +11,10 @@ import json
 import asyncpg
 import redis.asyncio as aioredis
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from app.dependencies import db_conn, redis_client
+from app.db import get_pool
+from app.redis_client import get_redis
 from app.services.price_service import get_bulk_prices
 
 log = structlog.get_logger()
@@ -28,10 +29,7 @@ _CACHE_TTL = 60  # seconds
 # ---------------------------------------------------------------------------
 
 @router.get("")
-async def get_dashboard(
-    conn: asyncpg.Connection = Depends(db_conn),
-    redis: aioredis.Redis = Depends(redis_client),
-):
+async def get_dashboard():
     """
     Single-call dashboard payload:
       scanner      — latest scan stats + signal counts
@@ -42,7 +40,9 @@ async def get_dashboard(
       recent_trades        — last 5 closed paper trades
       system_health        — DB / Redis / last scan duration
     """
+    redis: aioredis.Redis | None = None
     try:
+        redis = get_redis()
         cached = await redis.get(_CACHE_KEY)
         if cached:
             return json.loads(cached)
@@ -50,13 +50,16 @@ async def get_dashboard(
         pass  # Redis unavailable — fall through to DB
 
     try:
-        result = await _build(conn, redis)
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            result = await _build(conn, redis)
     except Exception as exc:
         log.warning("dashboard_build_failed", error=str(exc))
         return _empty_dashboard()
 
     try:
-        await redis.set(_CACHE_KEY, json.dumps(result, default=str), ex=_CACHE_TTL)
+        if redis is not None:
+            await redis.set(_CACHE_KEY, json.dumps(result, default=str), ex=_CACHE_TTL)
     except Exception:
         pass
 
