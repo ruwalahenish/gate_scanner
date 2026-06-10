@@ -18,6 +18,9 @@ cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 # Celery worker — on Windows MUST use --pool=solo (billiard prefork fails on Windows)
 cd backend && celery -A app.tasks.celery_app worker --loglevel=info --pool=solo
 
+# Celery beat scheduler (scheduled scans, price broadcasts)
+cd backend && celery -A app.tasks.celery_app beat --loglevel=info
+
 # Frontend
 cd apps/web && npm run dev
 ```
@@ -27,7 +30,13 @@ cd apps/web && npm run dev
 make up       # docker-compose up -d
 make down     # docker-compose down
 make logs     # tail api + worker logs
+make install  # pip install + npm install
+make clean    # remove __pycache__ and .next
 ```
+
+Docker runs two separate workers: `worker-scans` (concurrency=2, queues: scans+default) and `worker-admin` (concurrency=1, queues: admin+backtests). `dev.py` merges all queues into a single `--pool=solo` worker.
+
+Flower (Celery task monitor) is available at `http://localhost:5555` when running via Docker. Default auth: `admin / gate_flower_2024` (set via `FLOWER_USER` / `FLOWER_PASSWORD` env vars).
 
 ### Database
 ```bash
@@ -57,6 +66,10 @@ Copy `.env.example` to `.env` at the project root and set:
 - `REDIS_URL` — defaults to `redis://localhost:6379/0`
 - `ALLOWED_ORIGINS` — defaults to `http://localhost:3000`
 - `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` — optional, leave empty to disable
+- `INTERNAL_SECRET` — token required by `/api/internal/*` endpoints (for external cron triggers)
+- `SCAN_EXECUTOR_WORKERS` — thread pool size for scans (default: 4)
+- `READ_REPLICA_URL` — optional NeonDB read replica; leave empty to use primary for all reads
+- `GATE_CACHE_DIR` — override Parquet cache location (default: `../.gate_cache`)
 
 The backend reads `.env` from `backend/../.env` (project root). Frontend reads from `apps/web/.env.local`.
 
@@ -87,7 +100,9 @@ gate_scanner/
 │   │   └── main.py             # FastAPI app, lifespan, WebSocket /ws endpoint
 │   └── migrations/             # plain SQL — run manually with psql
 ├── apps/web/                   # Next.js 15 App Router frontend
-│   ├── app/(dashboard)/        # page routes (signals, portfolio, alerts, backtest…)
+│   ├── app/(dashboard)/        # route group — shared layout wraps all dashboard pages
+│   │   │                       # pages: / (dashboard), /scanner, /paper-trading,
+│   │   │                       # /portfolio, /alerts, /backtest, /stocks, /stocks/[symbol]
 │   └── src/
 │       ├── components/         # domain/ (SignalTable, GATEChart…), layout/, ui/
 │       ├── store/              # Redux store + RTK Query slices in store/api/
@@ -105,7 +120,17 @@ gate_scanner/
 - **Database**: NeonDB (PostgreSQL 16) via `asyncpg` connection pool. No ORM — raw SQL lives in `app/queries/`.
 - **Cache/Broker**: Redis — Celery broker+backend, pub/sub for real-time events.
 - **Workers**: Celery processes CPU-bound scan and backtest jobs off the FastAPI event loop.
-- **Observability**: Prometheus metrics exposed at `/metrics` (via `app/metrics.py`). Structured logs via `structlog` with per-request `X-Request-ID` correlation. API docs at `/api/docs`.
+- **Observability**: Prometheus metrics exposed at `/metrics` (via `app/metrics.py`). Structured logs via `structlog` with per-request `X-Request-ID` correlation. API docs at `/api/docs`. Extended health check at `/api/health/detailed` (DB pool stats, Redis ping, last scan info).
+- **Rate limiting**: `slowapi` enforces 200 requests/minute per IP globally; `/api/health` and `/metrics` are exempt.
+
+### Celery Beat schedule
+| Task | Schedule | Purpose |
+|---|---|---|
+| `daily-post-market-scan` | 16:05 IST Mon–Fri | Full universe scan after market close |
+| `weekly-stock-master-sync` | 06:00 UTC Sunday | Sync Nifty 50/Next 50 fundamentals |
+| `fundamentals-enrichment-batch` | Every 15 min | Enrich stock master with fundamentals |
+| `monitor-paper-trades` | Every 5 min (market hours) | Check SL/target hits, auto-exit positions |
+| `broadcast-position-prices` | Every 2 min (market hours) | Push live price ticks to connected clients |
 
 ### Scan request flow
 ```
@@ -158,6 +183,8 @@ After each scan completes, `automation_service.py` fires: WATCH-category signals
 
 ### Router versioning
 All routers are mounted under both `/api` and `/api/v1` prefixes (see `main.py`). The `signals` router is marked legacy and will be unmounted in M5. New endpoints should be domain-namespaced (e.g., `/api/v1/stocks`, not `/api/v1/signals`).
+
+Active routers: `dashboard`, `scans`, `signals` (legacy), `paper_trading`, `universe`, `watchlist`, `market`, `backtests`, `stock_master`, `internal`. The `internal` router exposes task-trigger endpoints for external cron services (cron-job.org); all require the `INTERNAL_SECRET` bearer token.
 
 ### Key design decisions
 

@@ -68,7 +68,10 @@
       "PowerShell($paths = @\\(\"$env:APPDATA\\\\Vercel\", \"$env:LOCALAPPDATA\\\\Vercel\", \"$env:USERPROFILE\\\\.vercel\", \"$env:USERPROFILE\\\\.config\\\\vercel\"\\); foreach \\($p in $paths\\) { if \\(Test-Path $p\\) { Write-Output \"Found: $p\"; Get-ChildItem $p -Force } })",
       "PowerShell(cmd /c \"type D:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\\\\.vercel\\\\project.json 2>&1\")",
       "PowerShell($tokenFile = Get-ChildItem \"$env:LOCALAPPDATA\\\\com.vercel.cli\\\\Cache\" -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { $_.Extension -eq \".json\" -or $_.Name -match \"token|auth|cred\" } | Select-Object -First 5; $tokenFile)",
-      "PowerShell(Get-ChildItem \"$env:LOCALAPPDATA\\\\com.vercel.cli\\\\Cache\" -Recurse -Force | Select-Object FullName, Length | Select-Object -First 20)"
+      "PowerShell(Get-ChildItem \"$env:LOCALAPPDATA\\\\com.vercel.cli\\\\Cache\" -Recurse -Force | Select-Object FullName, Length | Select-Object -First 20)",
+      "Bash(xargs grep -l \"Flower\\\\|Prometheus\\\\|metric\\\\|alert\")",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(xargs -I {} basename {})"
     ],
     "additionalDirectories": [
       "\\mnt\\d\\gate-scanner",
