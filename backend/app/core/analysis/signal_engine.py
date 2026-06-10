@@ -16,7 +16,7 @@ Per the GATE Strategy:
                    - invalid bounce sequence   (BUG-4 fix)
                    - Fibonacci confluence boost (MISS-2 fix)
 
-Side handling: long if direction == "up", short if "down". Both supported.
+Side: BUY only. The GATE strategy identifies corrections in uptrends; downtrend signals are discarded.
 """
 
 from __future__ import annotations
@@ -193,9 +193,9 @@ def generate_signal(
         return None
 
     direction = mtf_sum["alignment"]["dominant_direction"]
-    if direction == "neutral":
+    if direction != "up":
         return None
-    side = "BUY" if direction == "up" else "SELL"
+    side = "BUY"
 
     df_sig = mtf_data[sig_tf]
     entry = float(df_sig["Close"].iloc[-1])
