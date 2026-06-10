@@ -49,7 +49,11 @@ async def get_dashboard(
     except Exception:
         pass  # Redis unavailable — fall through to DB
 
-    result = await _build(conn, redis)
+    try:
+        result = await _build(conn, redis)
+    except Exception as exc:
+        log.warning("dashboard_build_failed", error=str(exc))
+        return _empty_dashboard()
 
     try:
         await redis.set(_CACHE_KEY, json.dumps(result, default=str), ex=_CACHE_TTL)
@@ -247,6 +251,30 @@ def _enrich(d: dict) -> dict:
     d["display_status"] = _DISPLAY_STATUS.get(cat, "NO_ACTION")
     d["display_category"] = _DISPLAY_CATEGORY.get(cat, "No Action")
     return d
+
+
+def _empty_dashboard() -> dict:
+    return {
+        "scanner": {
+            "last_scan_at": None, "last_scan_duration_sec": None,
+            "total_signals": 0, "buy_count": 0, "watch_count": 0, "no_action_count": 0,
+        },
+        "watchlist": {
+            "total": 0, "active": 0, "buy_triggered": 0,
+            "target_hit": 0, "sl_hit": 0, "closed": 0,
+        },
+        "paper_trading": {
+            "open_positions": 0, "total_trades": 0, "winning_trades": 0,
+            "win_rate": 0.0, "realized_pnl": 0.0, "unrealized_pnl": 0.0,
+            "total_pnl": 0.0, "current_capital": 0.0,
+        },
+        "backtesting": {
+            "total_runs": 0, "last_run_at": None, "best_cagr": 0.0, "best_win_rate": 0.0,
+        },
+        "recent_opportunities": [],
+        "recent_trades": [],
+        "system_health": {"db_ok": False, "redis_ok": False, "last_scan_duration_sec": None},
+    }
 
 
 def _serialize(row) -> dict:

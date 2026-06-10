@@ -122,3 +122,44 @@ async def test_rate_limit_scan_trigger():
     status_codes = [r.status_code for r in responses]
     assert 429 in status_codes, "Expected rate limit 429 after 5 requests"
     app.dependency_overrides.clear()
+
+
+@pytest.mark.anyio
+async def test_get_dashboard_returns_dict():
+    conn = AsyncMock()
+    # Latest scan — None means empty DB (fresh install before any scans)
+    conn.fetchrow = AsyncMock(return_value=None)
+    conn.fetch = AsyncMock(return_value=[])
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)   # cache miss
+    redis.set = AsyncMock(return_value=True)
+    redis.ping = AsyncMock(return_value=True)
+
+    app = _make_app_client(conn, redis)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        resp = await c.get("/api/dashboard")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "scanner" in data
+    assert "paper_trading" in data
+    assert "system_health" in data
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.anyio
+async def test_get_dashboard_fallback_on_db_error():
+    """Dashboard must return 200 with empty payload even when DB queries fail."""
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(side_effect=Exception("DB unavailable"))
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+
+    app = _make_app_client(conn, redis)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        resp = await c.get("/api/dashboard")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["system_health"]["db_ok"] is False
+    app.dependency_overrides.clear()
