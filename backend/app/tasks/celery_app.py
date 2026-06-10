@@ -1,3 +1,4 @@
+import ssl
 import sys
 
 from celery import Celery
@@ -54,6 +55,11 @@ celery_app.conf.update(
         "app.tasks.trading_tasks.monitor_paper_trades_task":       {"queue": "default"},
         "app.tasks.trading_tasks.broadcast_position_prices_task":  {"queue": "default"},
     },
+
+    # TLS for Upstash — rediss:// requires explicit ssl_cert_reqs
+    **({"broker_use_ssl": {"ssl_cert_reqs": ssl.CERT_NONE},
+        "redis_backend_use_ssl": {"ssl_cert_reqs": ssl.CERT_NONE}}
+       if settings.redis_url.startswith("rediss://") else {}),
 
     # Windows compatibility: solo pool avoids POSIX semaphore failures
     **({"worker_pool": "solo"} if sys.platform == "win32" else {}),
