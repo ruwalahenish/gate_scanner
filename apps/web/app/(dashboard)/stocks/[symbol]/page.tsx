@@ -9,15 +9,16 @@ import {
 } from "@mui/material";
 import { DataGrid, type GridColDef } from "@mui/x-data-grid";
 import {
-  ArrowBack, Refresh, TrendingUp, TrendingDown,
-  PlayArrow, Stop,
+  ArrowBack, Refresh, PlayArrow, Stop,
 } from "@mui/icons-material";
 import { GATEChart } from "@/components/domain/GATEChart";
+import { TradeSetupPanel } from "@/components/domain/TradeSetupPanel";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { CategoryChip } from "@/components/ui/CategoryChip";
 import { StatCard } from "@/components/ui/StatCard";
 import { formatPrice, formatPct, formatRR, formatScore, formatIST, formatCompact } from "@/lib/formatters";
 import { STATUS_COLORS, GATE_COLOR } from "@/lib/constants";
+import { fromLiveAnalysis, fromStockLatest, toChartLevels } from "@/lib/tradeSetup";
 import {
   useGetStockQuery,
   useGetStockChartDataQuery,
@@ -164,17 +165,6 @@ const BACKTEST_COLUMNS: GridColDef<BacktestTrade>[] = [
   },
 ];
 
-function LevelRow({ label, value, color }: { label: string; value: number | null; color?: string }) {
-  return (
-    <Box display="flex" justifyContent="space-between" alignItems="center" py={0.5}>
-      <Typography variant="caption" color="text.secondary">{label}</Typography>
-      <Typography variant="body2" fontWeight={600} sx={{ color: color ?? "text.primary", fontVariantNumeric: "tabular-nums" }}>
-        {value ? formatPrice(value) : "—"}
-      </Typography>
-    </Box>
-  );
-}
-
 function ElapsedTimer({ startedAt }: { startedAt: string | null }) {
   const [elapsed, setElapsed] = useState(0);
   const ref = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -299,13 +289,18 @@ export default function StockDetailPage() {
   const cagr          = hasScanResult ? scanStatus!.cagr : null;
   const maxDrawdown   = hasScanResult ? scanStatus!.max_drawdown : null;
 
-  // Extract signal levels for chart overlay
-  const sig = (analysisData as any)?.signal ?? null;
-  const signalLevels = sig
-    ? { entry: sig.entry, stop_loss: sig.stop_loss, t1: sig.T1, t2: sig.T2, t3: sig.T3 }
-    : stock?.latest_entry
-      ? { entry: stock.latest_entry, stop_loss: stock.latest_stop_loss, t1: stock.latest_t1 }
-      : null;
+  // Canonical trade setup — live analysis takes precedence over the stored scan.
+  const liveCategory = (stock?.latest_category as import("@/types/signal").SignalCategory) ?? null;
+  const liveSetup = analysisData
+    ? fromLiveAnalysis(symbol, analysisData, {
+        category: liveCategory,
+        // Detail-page live analysis is a fresh on-demand read → treat as confirmed-live.
+        provenance: (analysisData as any)?.signal?.entry != null ? "confirmed" : "none",
+      })
+    : null;
+  const storedSetup = stock?.latest_entry != null ? fromStockLatest(stock) : null;
+  const setup = liveSetup ?? storedSetup;
+  const chartLevels = toChartLevels(setup);
 
   const perTf: Record<string, any> = (analysisData as any)?.per_tf ?? {};
   const summary: Record<string, any> = (analysisData as any)?.summary ?? {};
@@ -379,9 +374,9 @@ export default function StockDetailPage() {
                 {TIMEFRAMES.map((tf) => <MenuItem key={tf.value} value={tf.value}>{tf.label}</MenuItem>)}
               </Select>
             </FormControl>
-            {stock?.latest_entry && (
+            {setup?.hasLevels && (
               <Typography variant="caption" color="text.secondary">
-                Levels from latest scan signal
+                {liveSetup ? "Levels from live analysis" : "Levels from latest scan signal"}
               </Typography>
             )}
           </Stack>
@@ -390,41 +385,20 @@ export default function StockDetailPage() {
             <ErrorBoundary>
               <GATEChart
                 bars={chartData?.bars ?? []}
-                signal={signalLevels}
+                signal={chartLevels}
                 loading={chartLoading}
                 height={460}
               />
             </ErrorBoundary>
           </Box>
 
-          {/* Signal levels panel */}
-          {signalLevels && (
-            <Paper sx={{ p: 2, bgcolor: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.15)" }}>
-              <Typography variant="caption" color="text.secondary" display="block" mb={1} fontWeight={600}>
-                {sig ? "Live Analysis Levels" : "Latest Scan Signal Levels"}
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6} md={3}>
-                  <LevelRow label="Entry" value={signalLevels.entry ?? null} color={STATUS_COLORS.SWING} />
-                  <LevelRow label="Stop Loss" value={signalLevels.stop_loss ?? null} color={GATE_COLOR.FAIL} />
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                  <LevelRow label="Target 1" value={signalLevels.t1 ?? null} color="success.light" />
-                  {(signalLevels as any).t2 && <LevelRow label="Target 2" value={(signalLevels as any).t2} color={STATUS_COLORS.INVESTMENT} />}
-                  {(signalLevels as any).t3 && <LevelRow label="Target 3" value={(signalLevels as any).t3} color="success.dark" />}
-                </Grid>
-                {stock?.latest_rr_t1 && (
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Box display="flex" justifyContent="space-between" py={0.5}>
-                      <Typography variant="caption" color="text.secondary">Risk:Reward (T1)</Typography>
-                      <Typography variant="body2" fontWeight={700} color={stock.latest_rr_t1 >= 2 ? "success.main" : "text.primary"}>
-                        {formatRR(stock.latest_rr_t1)}
-                      </Typography>
-                    </Box>
-                  </Grid>
-                )}
-              </Grid>
-            </Paper>
+          {/* Consolidated trade setup */}
+          {setup && (
+            <TradeSetupPanel
+              setup={setup}
+              variant="full"
+              headerTitle={liveSetup ? "Live Analysis Levels" : "Latest Scan Signal"}
+            />
           )}
         </Box>
       )}
@@ -476,54 +450,15 @@ export default function StockDetailPage() {
                 </Grid>
               )}
 
-              {/* Live signal panel */}
-              {sig && (
-                <Paper sx={{ p: 2, mb: 3, bgcolor: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.15)" }}>
-                  <Box display="flex" alignItems="center" gap={1.5} mb={1.5}>
-                    <Typography variant="subtitle2" fontWeight={700}>
-                      Current Opportunity
-                    </Typography>
-                    {sig.category && <CategoryChip category={sig.category} />}
-                    {sig.side === "BUY" ? (
-                      <TrendingUp sx={{ color: "success.main", fontSize: 18 }} />
-                    ) : sig.side === "SELL" ? (
-                      <TrendingDown sx={{ color: "error.main", fontSize: 18 }} />
-                    ) : null}
-                  </Box>
-                  <Grid container spacing={2}>
-                    <Grid item xs={6} sm={3}>
-                      <LevelRow label="Entry"     value={sig.entry}     color={STATUS_COLORS.SWING} />
-                      <LevelRow label="Stop Loss" value={sig.stop_loss} color={GATE_COLOR.FAIL} />
-                    </Grid>
-                    <Grid item xs={6} sm={3}>
-                      <LevelRow label="T1" value={sig.T1} color="success.light" />
-                      <LevelRow label="T2" value={sig.T2} color={STATUS_COLORS.INVESTMENT} />
-                      <LevelRow label="T3" value={sig.T3} color="success.dark" />
-                    </Grid>
-                    <Grid item xs={6} sm={3}>
-                      <Box display="flex" justifyContent="space-between" py={0.5}>
-                        <Typography variant="caption" color="text.secondary">GATE Strength</Typography>
-                        <Typography variant="body2" fontWeight={600}>{formatScore(sig.gate_strength)}</Typography>
-                      </Box>
-                      <Box display="flex" justifyContent="space-between" py={0.5}>
-                        <Typography variant="caption" color="text.secondary">Confidence</Typography>
-                        <Typography variant="body2" fontWeight={600}>{formatScore(sig.confidence)}</Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={6} sm={3}>
-                      <Box display="flex" justifyContent="space-between" py={0.5}>
-                        <Typography variant="caption" color="text.secondary">RR (T1)</Typography>
-                        <Typography variant="body2" fontWeight={700} color="success.main">
-                          {sig.rr?.T1 ? formatRR(sig.rr.T1) : "—"}
-                        </Typography>
-                      </Box>
-                      <Box display="flex" justifyContent="space-between" py={0.5}>
-                        <Typography variant="caption" color="text.secondary">Signal TF</Typography>
-                        <Chip label={sig.signal_timeframe ?? "—"} size="small" sx={{ height: 18, fontSize: "0.68rem" }} />
-                      </Box>
-                    </Grid>
-                  </Grid>
-                </Paper>
+              {/* Live signal panel (handles the "no setup yet" state internally) */}
+              {liveSetup && (
+                <Box mb={3}>
+                  <TradeSetupPanel
+                    setup={liveSetup}
+                    variant="full"
+                    headerTitle="Current Opportunity"
+                  />
+                </Box>
               )}
 
               {/* Per-timeframe breakdown */}

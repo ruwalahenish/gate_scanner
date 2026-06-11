@@ -14,7 +14,7 @@ import type {
 export const stockMasterApi = createApi({
   reducerPath: "stockMasterApi",
   baseQuery: fetchBaseQuery({ baseUrl: `${API_URL}/api/stocks` }),
-  tagTypes: ["Stock", "StockSync"],
+  tagTypes: ["Stock", "StockSync", "Analysis"],
   endpoints: (builder) => ({
     searchStocks: builder.query<StockSearchResult[], string>({
       query: (q) => ({ url: "/search", params: { q } }),
@@ -51,6 +51,7 @@ export const stockMasterApi = createApi({
     getStockAnalysis: builder.query<Record<string, unknown>, string>({
       query: (symbol) => `/${symbol}/analysis`,
       keepUnusedDataFor: 300,
+      providesTags: (_r, _e, symbol) => [{ type: "Analysis", id: symbol }],
     }),
     // Per-symbol backtest trade history
     getStockBacktestTrades: builder.query<BacktestTrade[], { symbol: string; limit?: number }>({

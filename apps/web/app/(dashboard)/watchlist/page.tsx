@@ -17,6 +17,8 @@ import {
 import { GATEBar } from "@/components/ui/GATEBar";
 import { StockLink } from "@/components/ui/StockLink";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { WatchSetupLoader } from "@/components/domain/WatchSetupLoader";
+import { fromWatchlistItem } from "@/lib/tradeSetup";
 import { formatIST, formatPrice } from "@/lib/formatters";
 import { STATUS_COLORS, GATE_COLOR } from "@/lib/constants";
 import type { WatchlistItem, WatchlistHistoryEvent, WatchlistStatus } from "@/types/watchlist";
@@ -223,6 +225,18 @@ const WatchlistRow = memo(function WatchlistRow({ item }: { item: WatchlistItem 
               {item.last_checked_at && ` · Last checked: ${formatIST(item.last_checked_at)}`}
             </Typography>
           </Box>
+          {/* On-demand trade setup (watchlist rows store no targets/RR) */}
+          {expanded && (
+            <Box px={2} pb={1}>
+              <WatchSetupLoader
+                symbol={item.symbol}
+                category="WATCH"
+                initialSetup={fromWatchlistItem(item)}
+                variant="compact"
+                headerTitle="Trade Setup"
+              />
+            </Box>
+          )}
           <Divider sx={{ borderColor: "rgba(255,255,255,0.04)" }} />
           <HistoryTimeline symbol={item.symbol} />
         </Box>

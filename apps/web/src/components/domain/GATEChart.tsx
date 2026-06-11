@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 import { Box, CircularProgress, Typography } from "@mui/material";
 import type { IChartApi } from "lightweight-charts";
+import { formatPrice } from "@/lib/formatters";
 
 interface Bar {
   time: number;
@@ -29,6 +30,8 @@ interface GATEChartProps {
   signal?: SignalLevels | null;
   height?: number;
   loading?: boolean;
+  /** Compact mode for small/mobile/embedded charts: shorter labels, slimmer lines. */
+  compact?: boolean;
 }
 
 const EMA_CONFIG = [
@@ -38,15 +41,17 @@ const EMA_CONFIG = [
   { key: "ema200" as const, color: "#c4b5fd", width: 2 },
 ];
 
+// Labeled horizontal price lines drawn directly on the candlestick series.
+// Entry is the most prominent (solid, thick, brand indigo); SL red; targets green.
 const LEVEL_CONFIG = [
-  { key: "t3" as const,        color: "#16a34a", dash: true  },
-  { key: "t2" as const,        color: "#22c55e", dash: true  },
-  { key: "t1" as const,        color: "#4ade80", dash: true  },
-  { key: "entry" as const,     color: "#6366f1", dash: false },
-  { key: "stop_loss" as const, color: "#ef4444", dash: true  },
+  { key: "entry" as const,     color: "#6366f1", dash: false, width: 3, label: "Entry" },
+  { key: "stop_loss" as const, color: "#ef4444", dash: true,  width: 2, label: "SL"    },
+  { key: "t1" as const,        color: "#4ade80", dash: true,  width: 1, label: "T1"     },
+  { key: "t2" as const,        color: "#22c55e", dash: true,  width: 1, label: "T2"     },
+  { key: "t3" as const,        color: "#16a34a", dash: true,  width: 1, label: "T3"     },
 ];
 
-export function GATEChart({ bars, signal, height = 480, loading = false }: GATEChartProps) {
+export function GATEChart({ bars, signal, height = 480, loading = false, compact = false }: GATEChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
 
@@ -118,25 +123,21 @@ export function GATEChart({ bars, signal, height = 480, loading = false }: GATEC
         s.setData(emaData);
       });
 
-      // Signal level horizontal lines (v5 API)
-      if (signal && bars.length) {
-        const firstTime = bars[0].time as unknown as string;
-        const lastTime = bars[bars.length - 1].time as unknown as string;
-
-        LEVEL_CONFIG.forEach(({ key, color, dash }) => {
+      // Signal level horizontal lines with on-chart labels (v5 createPriceLine).
+      // Titles render as visible labels on the line; axis label shows the price.
+      const isCompact = compact || height < 300;
+      if (signal) {
+        LEVEL_CONFIG.forEach(({ key, color, dash, width, label }) => {
           const val = signal[key];
-          if (!val) return;
-          const s = chart.addSeries(LineSeries, {
+          if (val == null) return;
+          candles.createPriceLine({
+            price: val,
             color,
-            lineWidth: 1,
+            lineWidth: (isCompact && width > 2 ? 2 : width) as 1 | 2 | 3 | 4,
             lineStyle: dash ? LineStyle.Dashed : LineStyle.Solid,
-            priceLineVisible: false,
-            lastValueVisible: true,
+            axisLabelVisible: true,
+            title: isCompact ? label : `${label} ${formatPrice(val)}`,
           });
-          s.setData([
-            { time: firstTime, value: val },
-            { time: lastTime, value: val },
-          ]);
         });
       }
 
@@ -149,7 +150,7 @@ export function GATEChart({ bars, signal, height = 480, loading = false }: GATEC
         chartRef.current = null;
       }
     };
-  }, [bars, signal, height, loading]);
+  }, [bars, signal, height, loading, compact]);
 
   if (loading) {
     return (

@@ -130,7 +130,7 @@ function handleMessage(
         signals_count: msg.payload.signals_count as number ?? 0,
       }));
       dispatch(scannerApi.util.invalidateTags(["Signal", "Scan", "Dashboard"]));
-      dispatch(stockMasterApi.util.invalidateTags(["Stock"]));
+      dispatch(stockMasterApi.util.invalidateTags(["Stock", "Analysis"]));
       setTimeout(() => dispatch(clearStreamingSignals()), 5000);
       // Single completion notification — the post_process event below updates
       // data silently (its summary is shown on the dashboard banner).
