@@ -14,6 +14,7 @@ import {
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { enqueueSnackbar } from "notistack";
+import { StockLink } from "@/components/ui/StockLink";
 import { API_URL, STATUS_COLORS } from "@/lib/constants";
 import { formatPrice, formatCompact } from "@/lib/formatters";
 import { selectBacktestLive } from "@/store/selectors";
@@ -601,7 +602,9 @@ export default function BacktestPage() {
                           ...(isSelected && { outline: "1px solid rgba(99,102,241,0.4)" }),
                         }}
                       >
-                        <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>{s.symbol}</TableCell>
+                        <TableCell sx={{ fontSize: "0.78rem" }}>
+                          <StockLink symbol={s.symbol} variant="body2" fontWeight={700} />
+                        </TableCell>
                         <TableCell>
                           {isFailed ? (
                             <Tooltip title={s.error ?? "scan failed"} placement="right">
@@ -966,7 +969,9 @@ export default function BacktestPage() {
                         const pnlPct = t.pnl_pct != null ? t.pnl_pct * 100 : null;
                         return (
                           <TableRow key={t.id ?? i} hover>
-                            <TableCell sx={{ fontWeight: 600, fontSize: "0.78rem" }}>{t.symbol}</TableCell>
+                            <TableCell sx={{ fontSize: "0.78rem" }}>
+                              <StockLink symbol={t.symbol} variant="body2" fontWeight={600} />
+                            </TableCell>
                             <TableCell sx={{ color: "text.secondary", fontSize: "0.72rem" }}>{t.timeframe}</TableCell>
                             <TableCell>
                               <Chip label={t.category ?? "—"} size="small" variant="outlined"

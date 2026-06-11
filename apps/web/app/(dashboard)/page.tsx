@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { PageError } from "@/components/ui/PageError";
 import { PnlBadge } from "@/components/ui/PnlBadge";
 import { CategoryChip } from "@/components/ui/CategoryChip";
+import { StockLink } from "@/components/ui/StockLink";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useGetDashboardQuery } from "@/store/api/scannerApi";
 import { formatIST, formatPrice, formatRR } from "@/lib/formatters";
@@ -96,7 +97,7 @@ const OpportunitiesSection = memo(function OpportunitiesSection({ items }: { ite
             }}
           >
             {/* Symbol */}
-            <Typography variant="body2" fontWeight={700} noWrap>{sig.symbol}</Typography>
+            <StockLink symbol={sig.symbol} variant="body2" fontWeight={700} noWrap />
 
             {/* Category chip */}
             <CategoryChip
@@ -194,7 +195,7 @@ const RecentTradesSection = memo(function RecentTradesSection({ items }: { items
               "&:hover": { bgcolor: "rgba(255,255,255,0.025)", borderRadius: 1 },
             }}
           >
-            <Typography variant="body2" fontWeight={700} noWrap>{t.symbol}</Typography>
+            <StockLink symbol={t.symbol} variant="body2" fontWeight={700} noWrap />
             <Typography variant="caption" color="text.secondary" noWrap>
               {EXIT_LABEL[t.exit_reason ?? ""] ?? t.exit_reason ?? "—"}
             </Typography>

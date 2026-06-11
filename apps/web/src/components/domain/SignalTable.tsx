@@ -7,6 +7,7 @@ import {
 } from "@mui/material";
 import { ExpandMore, ExpandLess, CheckCircle, Cancel } from "@mui/icons-material";
 import { GATEBar } from "@/components/ui/GATEBar";
+import { StockLink } from "@/components/ui/StockLink";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { formatPrice, formatRR } from "@/lib/formatters";
 import { STATUS_COLORS, GATE_THRESHOLDS, GATE_COLOR } from "@/lib/constants";
@@ -257,9 +258,7 @@ const DesktopSignalRow = memo(function DesktopSignalRow({ signal, expanded, onTo
         </IconButton>
 
         <Box>
-          <Typography variant="body2" fontWeight={700} color="primary.light" lineHeight={1.2}>
-            {signal.symbol}
-          </Typography>
+          <StockLink symbol={signal.symbol} variant="body2" fontWeight={700} color="primary.light" lineHeight={1.2} />
           {signal.company_name && (
             <Typography variant="caption" color="text.disabled" noWrap sx={{ display: "block", fontSize: "0.62rem" }}>
               {signal.company_name}
@@ -310,9 +309,7 @@ const MobileSignalRow = memo(function MobileSignalRow({ signal, expanded, onTogg
       >
         <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={0.75}>
           <Box>
-            <Typography variant="body2" fontWeight={700} color="primary.light" lineHeight={1.2}>
-              {signal.symbol}
-            </Typography>
+            <StockLink symbol={signal.symbol} variant="body2" fontWeight={700} color="primary.light" lineHeight={1.2} />
             {signal.company_name && (
               <Typography variant="caption" color="text.disabled" sx={{ fontSize: "0.62rem" }}>
                 {signal.company_name}

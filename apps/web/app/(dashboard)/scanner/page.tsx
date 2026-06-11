@@ -13,6 +13,7 @@ import {
 import { useSelector, useDispatch } from "react-redux";
 import { SignalTable, CATEGORY_DISPLAY } from "@/components/domain/SignalTable";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { StockLink } from "@/components/ui/StockLink";
 import { PageError } from "@/components/ui/PageError";
 import {
   useGetScanResultsQuery,
@@ -304,9 +305,7 @@ const ScanDetailPanel = memo(function ScanDetailPanel({
                     display="flex" alignItems="center" gap={1.5}
                     sx={i === 0 ? FEED_ROW_FIRST_SX : FEED_ROW_BASE_SX}
                   >
-                    <Typography variant="caption" fontWeight={700} sx={{ minWidth: 80 }}>
-                      {sig.symbol}
-                    </Typography>
+                    <StockLink symbol={sig.symbol} variant="caption" fontWeight={700} sx={{ minWidth: 80 }} />
                     <Chip
                       label={meta?.label ?? sig.category}
                       size="small"

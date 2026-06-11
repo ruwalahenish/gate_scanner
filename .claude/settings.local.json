@@ -78,7 +78,8 @@
       "Bash(psql --version)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git -C d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner log --all --oneline -- apps/web/.env.local -- .env)"
+      "Bash(git -C d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner log --all --oneline -- apps/web/.env.local -- .env)",
+      "Bash(npm run *)"
     ],
     "additionalDirectories": [
       "\\mnt\\d\\gate-scanner",

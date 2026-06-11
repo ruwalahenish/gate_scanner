@@ -15,6 +15,7 @@ import {
   useRemoveFromWatchlistMutation,
 } from "@/store/api/watchlistApi";
 import { GATEBar } from "@/components/ui/GATEBar";
+import { StockLink } from "@/components/ui/StockLink";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { formatIST } from "@/lib/formatters";
 import { STATUS_COLORS, GATE_COLOR } from "@/lib/constants";
@@ -157,9 +158,7 @@ const WatchlistRow = memo(function WatchlistRow({ item }: { item: WatchlistItem 
         </IconButton>
 
         {/* Symbol */}
-        <Typography variant="body2" fontWeight={700} color="primary.light" noWrap>
-          {item.symbol}
-        </Typography>
+        <StockLink symbol={item.symbol} variant="body2" fontWeight={700} color="primary.light" noWrap />
 
         {/* Source badge */}
         <Box>

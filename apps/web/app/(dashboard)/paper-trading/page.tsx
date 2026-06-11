@@ -16,6 +16,7 @@ import {
   useSellPositionMutation,
 } from "@/store/api/paperTradingApi";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { StockLink } from "@/components/ui/StockLink";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { formatPrice, formatPct, formatIST } from "@/lib/formatters";
 import { STATUS_COLORS } from "@/lib/constants";
@@ -219,7 +220,7 @@ function OpenPositionsTab({ onSell }: { onSell: (pos: Position) => void }) {
               <TableRow key={pos.id} hover>
                 <TableCell>
                   <Box>
-                    <Typography variant="body2" fontWeight={700}>{pos.symbol}</Typography>
+                    <StockLink symbol={pos.symbol} variant="body2" fontWeight={700} />
                     {pos.auto_created && (
                       <Chip label="Auto" size="small" sx={{ fontSize: "0.6rem", height: 16, mt: 0.2 }} />
                     )}
@@ -325,7 +326,9 @@ function TradeHistoryTab() {
             const pnlColor = isWin ? "success.main" : "error.main";
             return (
               <TableRow key={t.id} hover>
-                <TableCell sx={{ fontWeight: 700, fontSize: "0.8rem" }}>{t.symbol}</TableCell>
+                <TableCell sx={{ fontSize: "0.8rem" }}>
+                  <StockLink symbol={t.symbol} variant="body2" fontWeight={700} />
+                </TableCell>
                 <TableCell>
                   <Chip
                     label={t.side}

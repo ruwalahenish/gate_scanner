@@ -12,6 +12,7 @@ import {
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { enqueueSnackbar } from "notistack";
+import { StockLink } from "@/components/ui/StockLink";
 import { API_URL } from "@/lib/constants";
 import { formatPrice, formatCompact } from "@/lib/formatters";
 
@@ -506,7 +507,9 @@ export default function BacktestPage() {
                         const pnlPct = t.pnl_pct != null ? t.pnl_pct * 100 : null;
                         return (
                           <TableRow key={t.id} hover>
-                            <TableCell sx={{ fontWeight: 600, fontSize: "0.78rem" }}>{t.symbol}</TableCell>
+                            <TableCell sx={{ fontSize: "0.78rem" }}>
+                              <StockLink symbol={t.symbol} variant="body2" fontWeight={600} />
+                            </TableCell>
                             <TableCell sx={{ color: "text.secondary", fontSize: "0.72rem" }}>{t.timeframe}</TableCell>
                             <TableCell>
                               <Chip label={t.category ?? "—"} size="small" variant="outlined"
