@@ -39,6 +39,7 @@ export function TopBar({ title, onMenuClick }: TopBarProps) {
   const { data: pollData } = useGetScanStatusQuery(currentScanId!, {
     skip: !currentScanId || wsConnected,
     pollingInterval: 5000,
+    skipPollingIfUnfocused: true,
   });
 
   useEffect(() => {
@@ -77,6 +78,25 @@ export function TopBar({ title, onMenuClick }: TopBarProps) {
         <Typography variant="subtitle1" fontWeight={600} sx={{ flex: 1 }}>
           {title ?? "GATE Platform"}
         </Typography>
+
+        {/* Connection status — mirrors the Sidebar dot for mobile (sidebar hidden) */}
+        <Box
+          aria-label={wsConnected ? "Live connection active" : "Connection offline"}
+          title={wsConnected ? "Live" : "Offline — reconnecting"}
+          sx={{ display: { xs: "flex", md: "none" }, alignItems: "center", gap: 0.6, mr: 1 }}
+        >
+          <Box
+            sx={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              bgcolor: wsConnected ? "success.main" : "error.main",
+            }}
+          />
+          <Typography variant="caption" color={wsConnected ? "text.secondary" : "error.light"}>
+            {wsConnected ? "Live" : "Offline"}
+          </Typography>
+        </Box>
 
         {/* Scan in-progress indicator */}
         {scanProgress && (

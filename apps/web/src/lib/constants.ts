@@ -1,3 +1,5 @@
+import type { SignalCategory, DisplayStatus } from "@/types/signal";
+
 export const CATEGORY_COLORS = {
   INVESTMENT: "#22c55e",
   SWING:      "#6366f1",
@@ -7,6 +9,28 @@ export const CATEGORY_COLORS = {
 } as const;
 
 export const CATEGORY_ORDER = ["INVESTMENT", "SWING", "POSITIONAL", "WATCH", "IGNORE"] as const;
+
+// Categories that represent actionable BUY signals (vs WATCH / IGNORE).
+export const BUY_CATEGORIES: ReadonlySet<string> = new Set(["INVESTMENT", "SWING", "POSITIONAL"]);
+
+// Maps raw signal category → user-facing label + display bucket.
+export const CATEGORY_DISPLAY: Record<SignalCategory, { label: string; display: DisplayStatus }> = {
+  INVESTMENT: { label: "Long-Term Buy",  display: "BUY"       },
+  SWING:      { label: "Swing Buy",      display: "BUY"       },
+  POSITIONAL: { label: "Positional Buy", display: "BUY"       },
+  WATCH:      { label: "Watch",          display: "WATCH"     },
+  IGNORE:     { label: "No Action",      display: "NO_ACTION" },
+};
+
+// Trade exit-reason labels — shared by dashboard, paper trading, and dialogs.
+export const EXIT_LABEL: Record<string, string> = {
+  manual: "Manual",
+  sl_hit: "Stop Loss",
+  t1_hit: "Target T1",
+  t2_hit: "Target T2",
+  t3_hit: "Target T3",
+  trail:  "Trailing SL",
+};
 
 // Unified color token — canonical source for all signal/status colors.
 // Components should import from here instead of using raw hex strings.

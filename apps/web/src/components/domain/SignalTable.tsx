@@ -10,20 +10,15 @@ import { GATEBar } from "@/components/ui/GATEBar";
 import { StockLink } from "@/components/ui/StockLink";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { formatPrice, formatRR } from "@/lib/formatters";
-import { STATUS_COLORS, GATE_THRESHOLDS, GATE_COLOR } from "@/lib/constants";
-import type { Signal, SignalCategory, DisplayStatus } from "@/types/signal";
+import { STATUS_COLORS, GATE_THRESHOLDS, GATE_COLOR, CATEGORY_DISPLAY } from "@/lib/constants";
+import type { Signal, SignalCategory } from "@/types/signal";
+
+// Re-exported for backwards compatibility (canonical source: lib/constants.ts)
+export { CATEGORY_DISPLAY };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants — defined outside components to prevent sx object recreation
 // ─────────────────────────────────────────────────────────────────────────────
-
-export const CATEGORY_DISPLAY: Record<SignalCategory, { label: string; display: DisplayStatus }> = {
-  INVESTMENT: { label: "Long-Term Buy",  display: "BUY"       },
-  SWING:      { label: "Swing Buy",      display: "BUY"       },
-  POSITIONAL: { label: "Positional Buy", display: "BUY"       },
-  WATCH:      { label: "Watch",          display: "WATCH"     },
-  IGNORE:     { label: "No Action",      display: "NO_ACTION" },
-};
 
 const GRID_DESKTOP = "32px minmax(100px,140px) minmax(120px,160px) 90px 85px 72px 48px 56px";
 const HEADERS      = ["", "Symbol", "Status", "GATE", "Entry", "SL", "RR", "TF"] as const;
@@ -270,10 +265,10 @@ const DesktopSignalRow = memo(function DesktopSignalRow({ signal, expanded, onTo
         <GATEBar score={signal.gate_strength} />
 
         <Typography variant="body2" sx={{ fontSize: "0.78rem" }}>
-          {signal.entry != null ? `₹${signal.entry.toLocaleString("en-IN")}` : "—"}
+          {formatPrice(signal.entry)}
         </Typography>
         <Typography variant="body2" color="error.light" sx={{ fontSize: "0.78rem" }}>
-          {signal.stop_loss != null ? `₹${signal.stop_loss.toLocaleString("en-IN")}` : "—"}
+          {formatPrice(signal.stop_loss)}
         </Typography>
         <Typography
           variant="body2"
@@ -323,10 +318,10 @@ const MobileSignalRow = memo(function MobileSignalRow({ signal, expanded, onTogg
             <GATEBar score={signal.gate_strength} />
           </Box>
           <Typography variant="caption" color="text.secondary">
-            {signal.entry != null ? `₹${signal.entry.toLocaleString("en-IN")}` : "—"}
+            {formatPrice(signal.entry)}
           </Typography>
           <Typography variant="caption" color="error.light">
-            SL: {signal.stop_loss != null ? `₹${signal.stop_loss.toLocaleString("en-IN")}` : "—"}
+            SL: {formatPrice(signal.stop_loss)}
           </Typography>
           <Typography variant="caption" fontWeight={600} sx={{ color: rrColor }}>
             {formatRR(signal.rr_t1)}

@@ -1,4 +1,5 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
+import { BUY_CATEGORIES } from "@/lib/constants";
 import type { StreamingSignal } from "@/types/scan";
 
 const MAX_STREAMING_SIGNALS = 500;
@@ -90,8 +91,6 @@ const initialState: WSState = {
   },
 };
 
-const BUY_CATS = new Set(["INVESTMENT", "SWING", "POSITIONAL"]);
-
 function resetStreamingCounters(state: WSState) {
   state.streamingSignals = [];
   state.streamingSignalsCount = 0;
@@ -131,7 +130,7 @@ export const wsSlice = createSlice({
       // Maintain exact running counts for TopBar indicators (not bounded by slice).
       state.streamingSignalsCount += incoming.length;
       for (const sig of incoming) {
-        if (BUY_CATS.has(sig.category))       state.streamingBuyCount++;
+        if (BUY_CATEGORIES.has(sig.category))  state.streamingBuyCount++;
         else if (sig.category === "WATCH")     state.streamingWatchCount++;
         else                                   state.streamingNoActionCount++;
       }
@@ -173,6 +172,12 @@ export const wsSlice = createSlice({
     },
     priceUpdated: (state, action: PayloadAction<{ symbol: string; price: number }>) => {
       state.lastPrices[action.payload.symbol] = action.payload.price;
+    },
+    // Batched variant — useWebSocket buffers price ticks and flushes them
+    // periodically so the store (and every subscribed component) updates at
+    // most once per flush instead of once per tick.
+    pricesBatchUpdated: (state, action: PayloadAction<Record<string, number>>) => {
+      Object.assign(state.lastPrices, action.payload);
     },
     // ── Backtest live-streaming actions ──────────────────────────────────────
     backtestLiveReset: (state, action: PayloadAction<string>) => {
@@ -227,6 +232,7 @@ export const {
   scanFailed,
   postProcessReceived,
   priceUpdated,
+  pricesBatchUpdated,
   backtestLiveReset,
   backtestLiveLoad,
   backtestBatchScanning,

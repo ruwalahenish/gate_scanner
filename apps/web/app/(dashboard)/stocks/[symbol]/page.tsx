@@ -13,6 +13,7 @@ import {
   PlayArrow, Stop,
 } from "@mui/icons-material";
 import { GATEChart } from "@/components/domain/GATEChart";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { CategoryChip } from "@/components/ui/CategoryChip";
 import { StatCard } from "@/components/ui/StatCard";
 import { formatPrice, formatPct, formatRR, formatScore, formatIST, formatCompact } from "@/lib/formatters";
@@ -205,7 +206,7 @@ export default function StockDetailPage() {
   const [scanError, setScanError] = useState<string | null>(null);
 
   const { data: stock } = useGetStockQuery(symbol);
-  const { data: priceData } = useGetPriceQuery(symbol, { pollingInterval: 60_000 });
+  const { data: priceData } = useGetPriceQuery(symbol, { pollingInterval: 60_000, skipPollingIfUnfocused: true });
   const { data: chartData, isFetching: chartLoading } = useGetStockChartDataQuery(
     { symbol, timeframe },
     { skip: tab !== 0 },
@@ -232,6 +233,7 @@ export default function StockDetailPage() {
   const { data: scanStatus } = useGetBacktestStatusQuery(activeScanId!, {
     skip: !activeScanId,
     pollingInterval: activeScanId && !isTerminalRef.current ? 3000 : 0,
+    skipPollingIfUnfocused: true,
   });
   isTerminalRef.current = TERMINAL_STATUSES.has(scanStatus?.status ?? "");
 
@@ -315,11 +317,11 @@ export default function StockDetailPage() {
         <Button
           startIcon={<ArrowBack />}
           size="small"
-          onClick={() => router.push("/stocks")}
-          aria-label="Go back to stocks list"
+          onClick={() => (window.history.length > 1 ? router.back() : router.push("/stocks"))}
+          aria-label="Go back"
           sx={{ minWidth: "auto" }}
         >
-          Stocks
+          Back
         </Button>
         <Divider orientation="vertical" flexItem />
         <Box flex={1}>
@@ -385,12 +387,14 @@ export default function StockDetailPage() {
           </Stack>
 
           <Box sx={{ borderRadius: 2, overflow: "hidden", mb: 2 }}>
-            <GATEChart
-              bars={chartData?.bars ?? []}
-              signal={signalLevels}
-              loading={chartLoading}
-              height={460}
-            />
+            <ErrorBoundary>
+              <GATEChart
+                bars={chartData?.bars ?? []}
+                signal={signalLevels}
+                loading={chartLoading}
+                height={460}
+              />
+            </ErrorBoundary>
           </Box>
 
           {/* Signal levels panel */}

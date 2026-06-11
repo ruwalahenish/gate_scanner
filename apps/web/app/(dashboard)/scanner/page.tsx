@@ -11,7 +11,7 @@ import {
   TrendingUp, Visibility, DoNotDisturbAlt,
 } from "@mui/icons-material";
 import { useSelector, useDispatch } from "react-redux";
-import { SignalTable, CATEGORY_DISPLAY } from "@/components/domain/SignalTable";
+import { SignalTable } from "@/components/domain/SignalTable";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StockLink } from "@/components/ui/StockLink";
 import { PageError } from "@/components/ui/PageError";
@@ -22,8 +22,8 @@ import {
   useStopScanMutation,
 } from "@/store/api/scannerApi";
 import { scanStarted, scanFailed } from "@/store/slices/wsSlice";
-import { formatIST } from "@/lib/formatters";
-import { STATUS_COLORS } from "@/lib/constants";
+import { formatIST, formatPrice } from "@/lib/formatters";
+import { STATUS_COLORS, BUY_CATEGORIES, CATEGORY_DISPLAY } from "@/lib/constants";
 import {
   selectScanProgress,
   selectScanStartedAt,
@@ -169,8 +169,6 @@ function useElapsedSeconds(startedAt: number | null): number {
   return elapsed;
 }
 
-const BUY_CATS = new Set(["INVESTMENT", "SWING", "POSITIONAL"]);
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Rich scan detail panel (replaces thin banner)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -296,7 +294,7 @@ const ScanDetailPanel = memo(function ScanDetailPanel({
             </Typography>
             <Stack spacing={0.35}>
               {recentFeed.map((sig, i) => {
-                const isBuy = BUY_CATS.has(sig.category);
+                const isBuy = BUY_CATEGORIES.has(sig.category);
                 const col   = isBuy ? STATUS_COLORS.INVESTMENT : sig.category === "WATCH" ? STATUS_COLORS.WATCH : STATUS_COLORS.IGNORE;
                 const meta  = CATEGORY_DISPLAY[sig.category as SignalCategory];
                 return (
@@ -319,7 +317,7 @@ const ScanDetailPanel = memo(function ScanDetailPanel({
                     )}
                     {sig.entry != null && (
                       <Typography variant="caption" color="text.disabled" ml="auto">
-                        ₹{sig.entry.toLocaleString("en-IN")}
+                        {formatPrice(sig.entry)}
                       </Typography>
                     )}
                     {sig.rr_t1 != null && (
@@ -561,8 +559,9 @@ export default function ScannerPage() {
           <Schedule sx={{ fontSize: 13, color: "text.disabled" }} />
           <Typography variant="caption" color="text.secondary">
             Last scan: {formatIST(latestScan.triggered_at)}
-            {latestScan.universe_size != null && ` · ${latestScan.universe_size.toLocaleString()} stocks scanned`}
-            {latestScan.signals_found != null && ` · ${latestScan.signals_found} daily setups found`}
+            {latestScan.universe_size != null && latestScan.universe_size > 0 &&
+              ` · ${latestScan.universe_size.toLocaleString()} stocks scanned`}
+            {latestScan.signals_found != null && ` · ${latestScan.signals_found.toLocaleString()} signals found`}
           </Typography>
         </Box>
       )}

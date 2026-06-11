@@ -19,30 +19,14 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { StockLink } from "@/components/ui/StockLink";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { formatPrice, formatPct, formatIST } from "@/lib/formatters";
-import { STATUS_COLORS } from "@/lib/constants";
+import { STATUS_COLORS, EXIT_LABEL } from "@/lib/constants";
 import type { Position, Trade } from "@/types/paper_trading";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const EXIT_REASON_OPTIONS = [
-  { value: "manual", label: "Manual Exit" },
-  { value: "sl_hit", label: "Stop Loss Hit" },
-  { value: "t1_hit", label: "Target T1 Hit" },
-  { value: "t2_hit", label: "Target T2 Hit" },
-  { value: "t3_hit", label: "Target T3 Hit" },
-  { value: "trail",  label: "Trailing SL" },
-];
-
-const EXIT_LABEL: Record<string, string> = {
-  manual: "Manual",
-  sl_hit: "Stop Loss",
-  t1_hit: "Target T1",
-  t2_hit: "Target T2",
-  t3_hit: "Target T3",
-  trail:  "Trailing SL",
-};
+const EXIT_REASON_OPTIONS = Object.entries(EXIT_LABEL).map(([value, label]) => ({ value, label }));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Module-level constants
@@ -110,7 +94,7 @@ function SellDialog({
         price:       p,
         exit_reason: exitReason,
       }).unwrap();
-      enqueueSnackbar(`${position.symbol} sold at ₹${p.toLocaleString("en-IN")}`, { variant: "success" });
+      enqueueSnackbar(`${position.symbol} sold at ${formatPrice(p)}`, { variant: "success" });
       onClose();
     } catch (_err) {
       enqueueSnackbar("Sell failed — check logs", { variant: "error" });
@@ -126,7 +110,7 @@ function SellDialog({
       <DialogTitle sx={{ pb: 1 }}>
         Sell {position.symbol}
         <Typography variant="caption" color="text.secondary" display="block">
-          {position.quantity} shares · avg entry ₹{position.avg_entry.toLocaleString("en-IN")}
+          {position.quantity} shares · avg entry {formatPrice(position.avg_entry)}
         </Typography>
       </DialogTitle>
       <DialogContent>

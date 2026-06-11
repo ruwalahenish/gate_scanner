@@ -211,6 +211,7 @@ export default function StocksPage() {
   // ── Stock master sync status ───────────────────────────────────────────────
   const { data: syncStatus, refetch: refetchSyncStatus } = useGetSyncStatusQuery(undefined, {
     pollingInterval: 5000,
+    skipPollingIfUnfocused: true,
   });
   const syncRunning    = syncStatus?.is_running ?? false;
   const prevRunningRef = useRef(false);

@@ -19,7 +19,7 @@ import { StockLink } from "@/components/ui/StockLink";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useGetDashboardQuery } from "@/store/api/scannerApi";
 import { formatIST, formatPrice, formatRR } from "@/lib/formatters";
-import { STATUS_COLORS } from "@/lib/constants";
+import { STATUS_COLORS, EXIT_LABEL } from "@/lib/constants";
 import {
   selectScanProgress,
   selectLastPostProcess,
@@ -112,7 +112,7 @@ const OpportunitiesSection = memo(function OpportunitiesSection({ items }: { ite
 
             {/* Entry */}
             <Typography variant="caption" noWrap textAlign="right">
-              {sig.entry != null ? `₹${sig.entry.toLocaleString("en-IN")}` : "—"}
+              {formatPrice(sig.entry)}
             </Typography>
 
             {/* RR */}
@@ -133,15 +133,6 @@ const OpportunitiesSection = memo(function OpportunitiesSection({ items }: { ite
 // ─────────────────────────────────────────────────────────────────────────────
 // Section: Recent Paper Trades
 // ─────────────────────────────────────────────────────────────────────────────
-
-const EXIT_LABEL: Record<string, string> = {
-  manual:   "Manual",
-  sl_hit:   "Stop Loss",
-  t1_hit:   "Target T1",
-  t2_hit:   "Target T2",
-  t3_hit:   "Target T3",
-  trail:    "Trailing",
-};
 
 const RecentTradesSection = memo(function RecentTradesSection({ items }: { items: DashboardData["recent_trades"] }) {
   type TradeRow = {
@@ -328,6 +319,7 @@ const SystemHealthPanel = memo(function SystemHealthPanel({ health, scanner }: {
 export default function DashboardPage() {
   const { data, isLoading, isError, refetch } = useGetDashboardQuery(undefined, {
     pollingInterval: 60_000,
+    skipPollingIfUnfocused: true,
   });
 
   const scanProgress    = useSelector(selectScanProgress);

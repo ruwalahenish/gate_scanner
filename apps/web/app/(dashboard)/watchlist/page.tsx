@@ -17,7 +17,7 @@ import {
 import { GATEBar } from "@/components/ui/GATEBar";
 import { StockLink } from "@/components/ui/StockLink";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { formatIST } from "@/lib/formatters";
+import { formatIST, formatPrice } from "@/lib/formatters";
 import { STATUS_COLORS, GATE_COLOR } from "@/lib/constants";
 import type { WatchlistItem, WatchlistHistoryEvent, WatchlistStatus } from "@/types/watchlist";
 
@@ -189,12 +189,12 @@ const WatchlistRow = memo(function WatchlistRow({ item }: { item: WatchlistItem 
 
         {/* Entry */}
         <Typography variant="caption" sx={{ fontSize: "0.75rem" }}>
-          {item.entry != null ? `₹${item.entry.toLocaleString("en-IN")}` : "—"}
+          {formatPrice(item.entry)}
         </Typography>
 
         {/* SL */}
         <Typography variant="caption" color="error.light" sx={{ fontSize: "0.75rem" }}>
-          {item.stop_loss != null ? `₹${item.stop_loss.toLocaleString("en-IN")}` : "—"}
+          {formatPrice(item.stop_loss)}
         </Typography>
 
         {/* Remove */}
