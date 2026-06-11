@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 import asyncpg
 
-from app.dependencies import db_conn
+from app.dependencies import db_conn, db_read_conn
 from app.utils.serialization import serialize_row
 
 router = APIRouter(tags=["watchlist"])
@@ -15,7 +15,7 @@ async def get_watchlist(
     source: str | None = Query(None),
     limit: int = Query(200, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     """
     Returns watchlist items with enriched signal data (bounded — newest first).
@@ -47,7 +47,7 @@ async def get_watchlist(
 async def get_watchlist_history(
     symbol: str,
     limit: int = Query(50, ge=1, le=200),
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     """Timeline of status changes and GATE updates for a symbol."""
     rows = await conn.fetch(

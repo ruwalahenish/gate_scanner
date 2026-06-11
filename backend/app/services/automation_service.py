@@ -37,70 +37,90 @@ async def auto_update_watchlist(
     signals: list[dict],
 ) -> int:
     """
-    Upsert WATCH-category signals into the watchlist.
+    Upsert WATCH-category signals into the watchlist (batched — 3 queries total
+    instead of 2 per signal).
     - New symbols get an 'added' history event.
     - Existing symbols get a 'gate_update' history event with new GATE data.
     Returns the number of new symbols added.
     """
-    watch_signals = [s for s in signals if s.get("category") == "WATCH"]
-    added = 0
-
-    for sig in watch_signals:
-        symbol = sig.get("symbol")
-        if not symbol:
+    # Parse + dedupe (first occurrence wins — mirrors original per-row upsert order)
+    parsed: dict[str, dict] = {}
+    for sig in signals:
+        if sig.get("category") != "WATCH":
             continue
+        symbol = sig.get("symbol")
+        if not symbol or symbol in parsed:
+            continue
+        parsed[symbol] = {
+            "gate":      _f(sig.get("gate_strength")),
+            "rank":      _f(sig.get("rank_score")),
+            "entry":     _f(sig.get("entry")),
+            "sl":        _f(sig.get("stop_loss")),
+            "t1":        _f(sig.get("t1")),
+            "signal_id": _to_uuid(sig.get("id")),
+        }
 
-        gate = _f(sig.get("gate_strength"))
-        rank = _f(sig.get("rank_score"))
-        entry = _f(sig.get("entry"))
-        sl = _f(sig.get("stop_loss"))
-        t1 = _f(sig.get("t1"))
-        signal_id_raw = sig.get("id")
-        signal_id = _to_uuid(signal_id_raw)
+    if not parsed:
+        return 0
 
-        existing = await conn.fetchrow(
-            "SELECT id FROM watchlist WHERE symbol=$1", symbol
+    symbols = list(parsed.keys())
+
+    # 1 query: which symbols already exist?
+    existing_rows = await conn.fetch(
+        "SELECT symbol FROM watchlist WHERE symbol = ANY($1::text[])", symbols
+    )
+    existing = {r["symbol"] for r in existing_rows}
+
+    # 1 query: multi-row upsert via UNNEST (status only set on fresh INSERT,
+    # so existing rows keep their current status — same as the old code).
+    await conn.execute(
+        """INSERT INTO watchlist
+             (symbol, source, status, gate_strength, rank_score, entry, stop_loss, t1, signal_id)
+           SELECT u.symbol, 'scanner', 'active', u.gate, u.rank, u.entry, u.sl, u.t1, u.signal_id
+           FROM UNNEST($1::text[], $2::float8[], $3::float8[], $4::float8[],
+                       $5::float8[], $6::float8[], $7::uuid[])
+                AS u(symbol, gate, rank, entry, sl, t1, signal_id)
+           ON CONFLICT (symbol) DO UPDATE SET
+               gate_strength=EXCLUDED.gate_strength,
+               rank_score=EXCLUDED.rank_score,
+               entry=EXCLUDED.entry,
+               stop_loss=EXCLUDED.stop_loss,
+               t1=EXCLUDED.t1,
+               last_checked_at=NOW(),
+               signal_id=EXCLUDED.signal_id,
+               source='scanner'""",
+        symbols,
+        [parsed[s]["gate"] for s in symbols],
+        [parsed[s]["rank"] for s in symbols],
+        [parsed[s]["entry"] for s in symbols],
+        [parsed[s]["sl"] for s in symbols],
+        [parsed[s]["t1"] for s in symbols],
+        [parsed[s]["signal_id"] for s in symbols],
+    )
+
+    # Batched history events
+    update_events = [
+        (s, json.dumps({"gate_strength": parsed[s]["gate"], "rank_score": parsed[s]["rank"]}))
+        for s in symbols if s in existing
+    ]
+    add_events = [
+        (s, json.dumps({"source": "scanner", "gate_strength": parsed[s]["gate"]}))
+        for s in symbols if s not in existing
+    ]
+    if update_events:
+        await conn.executemany(
+            """INSERT INTO watchlist_history(symbol, event, details)
+               VALUES($1, 'gate_update', $2::jsonb)""",
+            update_events,
+        )
+    if add_events:
+        await conn.executemany(
+            """INSERT INTO watchlist_history(symbol, event, to_status, details)
+               VALUES($1, 'added', 'active', $2::jsonb)""",
+            add_events,
         )
 
-        if existing:
-            await conn.execute(
-                """UPDATE watchlist
-                   SET gate_strength=$1, rank_score=$2, entry=$3, stop_loss=$4,
-                       t1=$5, last_checked_at=NOW(), signal_id=$6, source='scanner'
-                   WHERE symbol=$7""",
-                gate, rank, entry, sl, t1, signal_id, symbol,
-            )
-            await conn.execute(
-                """INSERT INTO watchlist_history(symbol, event, details)
-                   VALUES($1, 'gate_update', $2::jsonb)""",
-                symbol,
-                json.dumps({"gate_strength": gate, "rank_score": rank}),
-            )
-        else:
-            await conn.execute(
-                """INSERT INTO watchlist
-                   (symbol, source, status, gate_strength, rank_score, entry, stop_loss, t1, signal_id)
-                   VALUES($1,'scanner','active',$2,$3,$4,$5,$6,$7)
-                   ON CONFLICT (symbol) DO UPDATE SET
-                       gate_strength=EXCLUDED.gate_strength,
-                       rank_score=EXCLUDED.rank_score,
-                       entry=EXCLUDED.entry,
-                       stop_loss=EXCLUDED.stop_loss,
-                       t1=EXCLUDED.t1,
-                       last_checked_at=NOW(),
-                       signal_id=EXCLUDED.signal_id,
-                       source='scanner'""",
-                symbol, gate, rank, entry, sl, t1, signal_id,
-            )
-            await conn.execute(
-                """INSERT INTO watchlist_history(symbol, event, to_status, details)
-                   VALUES($1,'added','active',$2::jsonb)""",
-                symbol,
-                json.dumps({"source": "scanner", "gate_strength": gate}),
-            )
-            added += 1
-
-    return added
+    return len(add_events)
 
 
 async def auto_create_paper_trades(
@@ -139,6 +159,20 @@ async def auto_create_paper_trades(
     available_capital = float(config["current_capital"])
     created = 0
 
+    # Prefetch held symbols + watchlist statuses in 2 queries (was 2 per signal)
+    candidate_symbols = [s["symbol"] for s in buy_signals if s.get("symbol")]
+    held_rows = await conn.fetch(
+        """SELECT DISTINCT symbol FROM positions
+           WHERE symbol = ANY($1::text[]) AND status IN ('open','partially_closed')""",
+        candidate_symbols,
+    )
+    held_symbols = {r["symbol"] for r in held_rows}
+    wl_rows = await conn.fetch(
+        "SELECT symbol, status FROM watchlist WHERE symbol = ANY($1::text[])",
+        candidate_symbols,
+    )
+    wl_status = {r["symbol"]: r["status"] for r in wl_rows}
+
     for sig in buy_signals:
         if open_count >= AUTO_TRADE_MAX_POSITIONS:
             break
@@ -147,12 +181,8 @@ async def auto_create_paper_trades(
         if not symbol:
             continue
 
-        # Skip if we already hold this symbol
-        existing_pos = await conn.fetchrow(
-            "SELECT id FROM positions WHERE symbol=$1 AND status IN ('open','partially_closed')",
-            symbol,
-        )
-        if existing_pos:
+        # Skip if we already hold this symbol (incl. positions created this loop)
+        if symbol in held_symbols:
             continue
 
         entry_price = float(sig["entry"])
@@ -182,12 +212,10 @@ async def auto_create_paper_trades(
             available_capital -= cost
             open_count += 1
             created += 1
+            held_symbols.add(symbol)  # block duplicate symbols later in this scan
 
-            # Promote watchlist status if symbol was being watched
-            wl = await conn.fetchrow(
-                "SELECT id, status FROM watchlist WHERE symbol=$1", symbol
-            )
-            if wl and wl["status"] == "active":
+            # Promote watchlist status if symbol was being watched (prefetched)
+            if wl_status.get(symbol) == "active":
                 await conn.execute(
                     "UPDATE watchlist SET status='buy_triggered' WHERE symbol=$1",
                     symbol,
@@ -199,6 +227,7 @@ async def auto_create_paper_trades(
                     symbol,
                     json.dumps({"auto_created": True, "entry": entry_price}),
                 )
+                wl_status[symbol] = "buy_triggered"
 
             log.info("auto_trade_created", symbol=symbol, qty=quantity, entry=entry_price)
 

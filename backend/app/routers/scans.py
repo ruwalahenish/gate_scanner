@@ -7,7 +7,7 @@ from pydantic import BaseModel
 import asyncpg
 
 from app.config import get_settings
-from app.dependencies import db_conn, redis_client
+from app.dependencies import db_conn, db_read_conn, redis_client
 from app.limiter import limiter
 from app.utils.display import enrich_signal_display
 from app.utils.serialization import serialize_row
@@ -40,7 +40,7 @@ def _signals_cache_key(status, category, min_rank, min_gate, side, timeframe, li
 async def get_scans(
     limit: int = 20,
     offset: int = 0,
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     rows = await list_scans(conn, limit, offset)
     return [dict(r) for r in rows]
@@ -93,7 +93,7 @@ async def get_latest_signals_endpoint(
     timeframe: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
     redis: aioredis.Redis = Depends(redis_client),
 ):
     """Primary signals endpoint — returns latest scan results with business terminology."""
@@ -150,7 +150,7 @@ async def get_scan_signals(
     min_gate: float = Query(0, ge=0, le=100),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     """Signals for a specific scan run."""
     row = await get_scan(conn, scan_id)
@@ -182,7 +182,7 @@ async def get_scan_signals(
 
 
 @router.get("/schedule")
-async def get_scan_schedule(conn: asyncpg.Connection = Depends(db_conn)):
+async def get_scan_schedule(conn: asyncpg.Connection = Depends(db_read_conn)):
     """Return the current scan schedule configuration."""
     row = await conn.fetchrow("SELECT * FROM scan_schedule WHERE id=1")
     if not row:
@@ -275,7 +275,7 @@ async def stop_scan(
 @router.get("/{scan_id}", response_model=ScanStatus)
 async def get_scan_status(
     scan_id: UUID,
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     row = await get_scan(conn, scan_id)
     if not row:

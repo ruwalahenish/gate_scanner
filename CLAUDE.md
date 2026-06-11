@@ -47,9 +47,12 @@ psql $DATABASE_URL -f backend/migrations/003_performance_indexes.sql
 psql $DATABASE_URL -f backend/migrations/004_architecture_v2.sql
 psql $DATABASE_URL -f backend/migrations/005_backtest_per_stock.sql
 psql $DATABASE_URL -f backend/migrations/006_backtest_streaming.sql  # required for streaming backtest progress
+psql $DATABASE_URL -f backend/migrations/007_optimization_indexes.sql  # covering indexes for dashboard, signals, watchlist hot paths
 ```
 
 Migration 006 adds `backtest_stock_results`, `total_symbols`, and `scanned_symbols` columns. The app degrades gracefully without it (skips per-stock persistence with a log warning) but streaming backtest results won't populate.
+
+Migration 007 adds covering and partial indexes for the heaviest query paths (dashboard aggregation, signal list filtering, watchlist lifecycle, auto-exit scans). Safe to run on a live database — all statements use `CREATE INDEX IF NOT EXISTS`.
 
 ### Install dependencies
 ```bash

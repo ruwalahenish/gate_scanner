@@ -14,7 +14,7 @@ import structlog
 from fastapi import APIRouter, Response
 
 from app.config import get_settings
-from app.db import get_pool
+from app.db import get_read_pool
 from app.redis_client import get_redis
 from app.services.price_service import get_bulk_prices
 from app.utils.display import enrich_signal_display
@@ -54,7 +54,7 @@ async def get_dashboard(response: Response):
         log.warning("dashboard_cache_read_failed", error=str(exc))
 
     try:
-        pool = get_pool()
+        pool = get_read_pool()
         async with pool.acquire(timeout=10) as conn:
             result = await _build(conn, redis)
     except Exception as exc:

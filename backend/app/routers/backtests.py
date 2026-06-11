@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 import asyncpg
 
-from app.dependencies import db_conn
+from app.dependencies import db_conn, db_read_conn
 from app.limiter import limiter
 from app.tasks.backtest_tasks import run_backtest_task
 from app.utils.serialization import serialize_row
@@ -24,7 +24,7 @@ class RunBacktestRequest(BaseModel):
 async def list_backtests(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     rows = await conn.fetch(
         "SELECT * FROM backtests ORDER BY started_at DESC LIMIT $1 OFFSET $2",
@@ -85,7 +85,7 @@ async def cancel_backtest(
 @router.get("/{backtest_id}")
 async def get_backtest(
     backtest_id: UUID,
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     row = await conn.fetchrow("SELECT * FROM backtests WHERE id=$1", backtest_id)
     if not row:
@@ -97,7 +97,7 @@ async def get_backtest(
 async def get_backtest_trades(
     backtest_id: UUID,
     symbol: Optional[str] = None,
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     if symbol:
         rows = await conn.fetch(
@@ -114,7 +114,7 @@ async def get_backtest_trades(
 @router.get("/{backtest_id}/stock-results")
 async def get_stock_results(
     backtest_id: UUID,
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     rows = await conn.fetch(
         """SELECT symbol, status, total_trades, winning_trades, win_rate,
@@ -131,7 +131,7 @@ async def get_stock_results(
 @router.get("/{backtest_id}/equity-curve")
 async def get_equity_curve(
     backtest_id: UUID,
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     rows = await conn.fetch(
         "SELECT * FROM backtest_equity_curve WHERE backtest_id=$1 ORDER BY curve_date",

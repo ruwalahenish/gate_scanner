@@ -66,15 +66,18 @@ class WebSocketManager:
             log.warning("ws_serialize_error", error=str(e))
             return
 
-        dead: set[WebSocket] = set()
         async with self._lock:
             snapshot = list(self._connections)
 
-        for ws in snapshot:
-            try:
-                await ws.send_text(data)
-            except Exception:
-                dead.add(ws)
+        # Send to all clients concurrently — one slow client no longer blocks
+        # the whole fan-out. Exceptions mark the client dead.
+        results = await asyncio.gather(
+            *(ws.send_text(data) for ws in snapshot),
+            return_exceptions=True,
+        )
+        dead: set[WebSocket] = {
+            ws for ws, res in zip(snapshot, results) if isinstance(res, Exception)
+        }
 
         if dead:
             async with self._lock:

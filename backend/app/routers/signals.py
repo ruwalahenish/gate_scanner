@@ -6,7 +6,7 @@ import asyncpg
 import redis.asyncio as aioredis
 
 from app.config import get_settings
-from app.dependencies import db_conn, redis_client
+from app.dependencies import db_read_conn, redis_client
 from app.queries.signals import get_latest_signals, get_signal_history
 from app.services.scan_service import analyze_symbol_async, fetch_ohlcv_async
 from app.utils.serialization import serialize_row
@@ -34,7 +34,7 @@ async def list_signals(
     timeframe: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
     redis: aioredis.Redis = Depends(redis_client),
 ):
     key = _cache_key(category, min_rank, min_gate, side, timeframe, limit, offset)
@@ -71,7 +71,7 @@ async def list_signals(
 async def signal_history(
     symbol: str,
     limit: int = Query(30, ge=1, le=100),
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     rows = await get_signal_history(conn, symbol.upper(), limit)
     return [serialize_row(r, _JSONB_COLS) for r in rows]

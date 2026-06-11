@@ -10,7 +10,7 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.dependencies import db_conn, redis_client
+from app.dependencies import db_conn, db_read_conn, redis_client
 from app.services.price_service import get_bulk_prices
 from app.models.stock import (
     StockListResponse,
@@ -46,7 +46,7 @@ async def search_endpoint(
     exchange: Optional[str] = None,
     index_filter: Optional[str] = None,
     sector: Optional[str] = None,
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     if index_filter and index_filter not in _VALID_INDEX_FILTERS:
         raise HTTPException(status_code=422, detail=f"Invalid index_filter: {index_filter}")
@@ -60,7 +60,7 @@ async def search_endpoint(
 # ---------------------------------------------------------------------------
 
 @router.get("/stats")
-async def stats_endpoint(conn: asyncpg.Connection = Depends(db_conn)):
+async def stats_endpoint(conn: asyncpg.Connection = Depends(db_read_conn)):
     return await get_stats(conn)
 
 
@@ -144,7 +144,7 @@ async def list_stocks_endpoint(
     category: Optional[str] = None,
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
     redis: aioredis.Redis = Depends(redis_client),
 ):
     if index_filter and index_filter not in _VALID_INDEX_FILTERS:
@@ -173,7 +173,7 @@ async def list_stocks_endpoint(
 async def get_stock_detail(
     symbol: str,
     exchange: str = "NSE",
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     row = await get_stock(conn, symbol.upper(), exchange)
     if not row:
@@ -263,7 +263,7 @@ async def trigger_symbol_backtest(
 async def get_backtest_trades(
     symbol: str,
     limit: int = Query(50, ge=1, le=200),
-    conn: asyncpg.Connection = Depends(db_conn),
+    conn: asyncpg.Connection = Depends(db_read_conn),
 ):
     from app.routers.backtests import get_trades_for_symbol
     return await get_trades_for_symbol(conn, symbol.upper(), limit)
