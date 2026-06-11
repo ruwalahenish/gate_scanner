@@ -170,10 +170,7 @@ export const wsSlice = createSlice({
     postProcessReceived: (state, action: PayloadAction<PostProcessPayload>) => {
       state.lastPostProcess = action.payload;
     },
-    priceUpdated: (state, action: PayloadAction<{ symbol: string; price: number }>) => {
-      state.lastPrices[action.payload.symbol] = action.payload.price;
-    },
-    // Batched variant — useWebSocket buffers price ticks and flushes them
+    // useWebSocket buffers individual price ticks and flushes them here
     // periodically so the store (and every subscribed component) updates at
     // most once per flush instead of once per tick.
     pricesBatchUpdated: (state, action: PayloadAction<Record<string, number>>) => {
@@ -231,7 +228,6 @@ export const {
   clearStreamingSignals,
   scanFailed,
   postProcessReceived,
-  priceUpdated,
   pricesBatchUpdated,
   backtestLiveReset,
   backtestLiveLoad,

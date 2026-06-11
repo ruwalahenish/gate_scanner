@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Box, Typography, Grid, Card, CardContent, Chip, Button, TextField,
@@ -298,7 +298,9 @@ export default function StocksPage() {
     router.push(`/stocks/${params.row.symbol}`);
   };
 
-  const columns: GridColDef<Stock>[] = [
+  // Stable identity — DataGrid re-mounts cells when the columns array changes,
+  // so it must not be recreated on every render.
+  const columns = useMemo<GridColDef<Stock>[]>(() => [
     {
       field: "symbol",
       headerName: "Symbol",
@@ -444,7 +446,7 @@ export default function StocksPage() {
       renderCell: (p) =>
         p.value ? <Chip label="✓" size="small" color="primary" sx={{ height: 18, fontSize: 10 }} /> : null,
     },
-  ];
+  ], []);
 
   return (
     <Box>

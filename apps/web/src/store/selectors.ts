@@ -42,11 +42,3 @@ export const selectScanProgressPct = createSelector(
     return Math.min(100, Math.round((progress.done / progress.total) * 100));
   }
 );
-
-export const selectScanElapsedSec = createSelector(
-  selectScanStartedAt,
-  (startedAt) => {
-    if (!startedAt) return 0;
-    return Math.round((Date.now() - startedAt) / 1000);
-  }
-);

@@ -1,6 +1,7 @@
 "use client";
-import { useState, useEffect, useRef, useCallback, memo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { useSelector, useDispatch } from "react-redux";
+import dynamic from "next/dynamic";
 import {
   Box, Typography, Card, CardContent, Grid, TextField, Button,
   CircularProgress, Alert, Table, TableBody, TableCell,
@@ -9,20 +10,23 @@ import {
 } from "@mui/material";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopIcon from "@mui/icons-material/Stop";
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
-  ResponsiveContainer, ReferenceLine,
-} from "recharts";
 import { enqueueSnackbar } from "notistack";
 import { StockLink } from "@/components/ui/StockLink";
-import { API_URL, STATUS_COLORS } from "@/lib/constants";
+import { API_URL } from "@/lib/constants";
 import { formatPrice, formatCompact } from "@/lib/formatters";
 import { selectBacktestLive } from "@/store/selectors";
 import type { AppDispatch } from "@/store";
 import {
   backtestLiveReset,
   backtestLiveLoad,
+  type LiveStockResult,
 } from "@/store/slices/wsSlice";
+
+// recharts is heavy — load the equity curve on demand, client-side only.
+const EquityCurveChart = dynamic(
+  () => import("@/components/domain/EquityCurveChart"),
+  { ssr: false, loading: () => <Skeleton variant="rounded" height={260} /> }
+);
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -169,6 +173,86 @@ const HistoryRow = memo(function HistoryRow({
         </Button>
       )}
     </Box>
+  );
+});
+
+// ── Live per-stock result row ─────────────────────────────────────────────────
+// Memoized so a single stock update doesn't re-render the entire table.
+
+const LiveResultRow = memo(function LiveResultRow({
+  result: s, isSelected, onSelect,
+}: {
+  result: LiveStockResult;
+  isSelected: boolean;
+  onSelect: (symbol: string) => void;
+}) {
+  const isFailed = s.status === "failed";
+  const rowBg = isSelected
+    ? "rgba(99,102,241,0.12)"
+    : isFailed
+      ? "rgba(239,68,68,0.06)"
+      : s.total_pnl_abs >= 0
+        ? "rgba(34,197,94,0.04)"
+        : "rgba(239,68,68,0.04)";
+  return (
+    <TableRow
+      hover
+      onClick={() => !isFailed && onSelect(s.symbol)}
+      sx={{
+        cursor: isFailed ? "default" : "pointer",
+        bgcolor: rowBg,
+        ...(isSelected && { outline: "1px solid rgba(99,102,241,0.4)" }),
+      }}
+    >
+      <TableCell sx={{ fontSize: "0.78rem" }}>
+        <StockLink symbol={s.symbol} variant="body2" fontWeight={700} />
+      </TableCell>
+      <TableCell>
+        {isFailed ? (
+          <Tooltip title={s.error ?? "scan failed"} placement="right">
+            <Chip label="failed" size="small" color="error" sx={{ fontSize: "0.65rem", height: 18 }} />
+          </Tooltip>
+        ) : (
+          <Chip label={s.category ?? "done"} size="small" variant="outlined"
+            sx={{ fontSize: "0.65rem", height: 18 }} />
+        )}
+      </TableCell>
+      <TableCell sx={{ fontSize: "0.75rem" }}>{isFailed ? "—" : s.total_trades}</TableCell>
+      <TableCell sx={{ fontSize: "0.75rem", color: "success.main" }}>{isFailed ? "—" : s.winning_trades}</TableCell>
+      <TableCell>
+        {isFailed ? "—" : (
+          <Typography variant="inherit" fontSize="0.75rem" fontWeight={600}
+            color={s.win_rate >= 50 ? "success.main" : "error.main"}>
+            {s.win_rate.toFixed(1)}%
+          </Typography>
+        )}
+      </TableCell>
+      <TableCell>
+        {isFailed ? "—" : (
+          <Typography variant="inherit" fontSize="0.75rem" fontWeight={600}
+            color={s.total_pnl_abs >= 0 ? "success.main" : "error.main"}>
+            {s.total_pnl_abs >= 0 ? "+" : ""}{formatPrice(s.total_pnl_abs)}
+          </Typography>
+        )}
+      </TableCell>
+      <TableCell>
+        {isFailed ? "—" : (
+          <Typography variant="inherit" fontSize="0.75rem"
+            color={s.avg_pnl_pct >= 0 ? "success.main" : "error.main"}>
+            {s.avg_pnl_pct >= 0 ? "+" : ""}{s.avg_pnl_pct.toFixed(1)}%
+          </Typography>
+        )}
+      </TableCell>
+      <TableCell sx={{ fontSize: "0.75rem", color: "success.main" }}>
+        {isFailed ? "—" : `+${s.best_trade_pct.toFixed(1)}%`}
+      </TableCell>
+      <TableCell sx={{ fontSize: "0.75rem", color: "error.main" }}>
+        {isFailed ? "—" : `${s.worst_trade_pct.toFixed(1)}%`}
+      </TableCell>
+      <TableCell sx={{ fontSize: "0.72rem", color: "text.secondary" }}>
+        {isFailed ? "—" : `${s.avg_holding_days.toFixed(0)}d`}
+      </TableCell>
+    </TableRow>
   );
 });
 
@@ -376,32 +460,47 @@ export default function BacktestPage() {
     }
   }, [cancelling]);
 
+  // Stable identity — passed to every memoized LiveResultRow; toggles selection.
+  const handleSelectSymbol = useCallback((symbol: string) => {
+    setSelectedSymbol(prev => (prev === symbol ? null : symbol));
+  }, []);
+
   // Derived stats from result (shown in metric cards after completion)
   const totalReturn = result?.final_equity != null
     ? ((result.final_equity - result.initial_capital) / result.initial_capital * 100)
     : null;
   const wins    = result?.winning_trades ?? 0;
   const losses  = (result?.total_trades ?? 0) - wins;
-  const totalPnl = trades.reduce((s, t) => s + (t.pnl_abs ?? 0), 0);
-  const pnlValues = trades.map(t => t.pnl_abs).filter((v): v is number => v != null);
-  const bestTrade  = pnlValues.length ? Math.max(...pnlValues) : null;
-  const worstTrade = pnlValues.length ? Math.min(...pnlValues) : null;
-  const holdingDays = trades.map(t => t.holding_days).filter((v): v is number => v != null && v >= 0);
-  const avgHold = holdingDays.length
-    ? holdingDays.reduce((s, d) => s + d, 0) / holdingDays.length
-    : null;
+
+  const { totalPnl, bestTrade, worstTrade, avgHold } = useMemo(() => {
+    const pnlValues = trades.map(t => t.pnl_abs).filter((v): v is number => v != null);
+    const holdingDays = trades.map(t => t.holding_days).filter((v): v is number => v != null && v >= 0);
+    return {
+      totalPnl:   trades.reduce((s, t) => s + (t.pnl_abs ?? 0), 0),
+      bestTrade:  pnlValues.length ? Math.max(...pnlValues) : null,
+      worstTrade: pnlValues.length ? Math.min(...pnlValues) : null,
+      avgHold:    holdingDays.length
+        ? holdingDays.reduce((s, d) => s + d, 0) / holdingDays.length
+        : null,
+    };
+  }, [trades]);
+
   const universeCount = universe.trim()
     ? universe.split(",").filter(s => s.trim()).length
     : null;
 
-  const filteredTrades = selectedSymbol
-    ? trades.filter(t => t.symbol === selectedSymbol)
-    : trades;
+  const filteredTrades = useMemo(
+    () => (selectedSymbol ? trades.filter(t => t.symbol === selectedSymbol) : trades),
+    [trades, selectedSymbol]
+  );
 
   // Sort live results: by total_pnl_abs desc (once stable); during scan keep append order
-  const sortedLiveResults = running
-    ? liveStockResults
-    : [...liveStockResults].sort((a, b) => b.total_pnl_abs - a.total_pnl_abs);
+  const sortedLiveResults = useMemo(
+    () => (running
+      ? liveStockResults
+      : [...liveStockResults].sort((a, b) => b.total_pnl_abs - a.total_pnl_abs)),
+    [running, liveStockResults]
+  );
 
   const showLiveTable = liveStockResults.length > 0 || (running && backtestProgress != null);
 
@@ -580,79 +679,15 @@ export default function BacktestPage() {
                     );
                   })}
 
-                  {/* Completed stock rows */}
-                  {sortedLiveResults.map(s => {
-                    const isSelected = selectedSymbol === s.symbol;
-                    const isFailed   = s.status === "failed";
-                    const rowBg = isSelected
-                      ? "rgba(99,102,241,0.12)"
-                      : isFailed
-                        ? "rgba(239,68,68,0.06)"
-                        : s.total_pnl_abs >= 0
-                          ? "rgba(34,197,94,0.04)"
-                          : "rgba(239,68,68,0.04)";
-                    return (
-                      <TableRow
-                        key={s.symbol}
-                        hover
-                        onClick={() => !isFailed && setSelectedSymbol(isSelected ? null : s.symbol)}
-                        sx={{
-                          cursor: isFailed ? "default" : "pointer",
-                          bgcolor: rowBg,
-                          ...(isSelected && { outline: "1px solid rgba(99,102,241,0.4)" }),
-                        }}
-                      >
-                        <TableCell sx={{ fontSize: "0.78rem" }}>
-                          <StockLink symbol={s.symbol} variant="body2" fontWeight={700} />
-                        </TableCell>
-                        <TableCell>
-                          {isFailed ? (
-                            <Tooltip title={s.error ?? "scan failed"} placement="right">
-                              <Chip label="failed" size="small" color="error" sx={{ fontSize: "0.65rem", height: 18 }} />
-                            </Tooltip>
-                          ) : (
-                            <Chip label={s.category ?? "done"} size="small" variant="outlined"
-                              sx={{ fontSize: "0.65rem", height: 18 }} />
-                          )}
-                        </TableCell>
-                        <TableCell sx={{ fontSize: "0.75rem" }}>{isFailed ? "—" : s.total_trades}</TableCell>
-                        <TableCell sx={{ fontSize: "0.75rem", color: "success.main" }}>{isFailed ? "—" : s.winning_trades}</TableCell>
-                        <TableCell>
-                          {isFailed ? "—" : (
-                            <Typography variant="inherit" fontSize="0.75rem" fontWeight={600}
-                              color={s.win_rate >= 50 ? "success.main" : "error.main"}>
-                              {s.win_rate.toFixed(1)}%
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {isFailed ? "—" : (
-                            <Typography variant="inherit" fontSize="0.75rem" fontWeight={600}
-                              color={s.total_pnl_abs >= 0 ? "success.main" : "error.main"}>
-                              {s.total_pnl_abs >= 0 ? "+" : ""}{formatPrice(s.total_pnl_abs)}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {isFailed ? "—" : (
-                            <Typography variant="inherit" fontSize="0.75rem"
-                              color={s.avg_pnl_pct >= 0 ? "success.main" : "error.main"}>
-                              {s.avg_pnl_pct >= 0 ? "+" : ""}{s.avg_pnl_pct.toFixed(1)}%
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell sx={{ fontSize: "0.75rem", color: "success.main" }}>
-                          {isFailed ? "—" : `+${s.best_trade_pct.toFixed(1)}%`}
-                        </TableCell>
-                        <TableCell sx={{ fontSize: "0.75rem", color: "error.main" }}>
-                          {isFailed ? "—" : `${s.worst_trade_pct.toFixed(1)}%`}
-                        </TableCell>
-                        <TableCell sx={{ fontSize: "0.72rem", color: "text.secondary" }}>
-                          {isFailed ? "—" : `${s.avg_holding_days.toFixed(0)}d`}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
+                  {/* Completed stock rows — memoized so one update doesn't redraw all */}
+                  {sortedLiveResults.map(s => (
+                    <LiveResultRow
+                      key={s.symbol}
+                      result={s}
+                      isSelected={selectedSymbol === s.symbol}
+                      onSelect={handleSelectSymbol}
+                    />
+                  ))}
                 </TableBody>
               </Table>
             </TableContainer>
@@ -884,43 +919,7 @@ export default function BacktestPage() {
             <Card sx={{ mb: 2 }}>
               <CardContent>
                 <Typography variant="subtitle2" mb={1}>Equity Curve</Typography>
-                <ResponsiveContainer width="100%" height={260}>
-                  <AreaChart data={equityCurve} margin={{ left: 8, right: 16 }}>
-                    <defs>
-                      <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%"  stopColor={STATUS_COLORS.SWING} stopOpacity={0.35} />
-                        <stop offset="95%" stopColor={STATUS_COLORS.SWING} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                    <XAxis
-                      dataKey="curve_date" stroke={STATUS_COLORS.IGNORE}
-                      tick={{ fontSize: 10 }} interval="preserveStartEnd"
-                    />
-                    <YAxis
-                      stroke={STATUS_COLORS.IGNORE} tick={{ fontSize: 10 }} width={72}
-                      tickFormatter={v => formatCompact(v)}
-                    />
-                    <RechartsTooltip
-                      contentStyle={{
-                        backgroundColor: "#1a1a24",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        borderRadius: 8,
-                      }}
-                      formatter={(v: number) => [formatCompact(v), "Equity"]}
-                      labelStyle={{ color: "#94a3b8", fontSize: 11 }}
-                    />
-                    <ReferenceLine
-                      y={result.initial_capital} stroke={STATUS_COLORS.WATCH} strokeDasharray="4 4"
-                      label={{ value: "Invested", fill: STATUS_COLORS.WATCH, fontSize: 9, position: "insideTopRight" }}
-                    />
-                    <Area
-                      type="monotone" dataKey="equity"
-                      stroke={STATUS_COLORS.SWING} fill="url(#eqGrad)"
-                      strokeWidth={2} dot={false} activeDot={{ r: 4 }}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <EquityCurveChart data={equityCurve} initialCapital={result.initial_capital} />
               </CardContent>
             </Card>
           )}
