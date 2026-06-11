@@ -9,8 +9,9 @@ from httpx import AsyncClient, ASGITransport
 
 def _make_app_client(mock_db_conn, mock_redis):
     from app.main import app
-    from app.dependencies import db_conn, redis_client
+    from app.dependencies import db_conn, db_read_conn, redis_client
     app.dependency_overrides[db_conn] = lambda: mock_db_conn
+    app.dependency_overrides[db_read_conn] = lambda: mock_db_conn
     app.dependency_overrides[redis_client] = lambda: mock_redis
     return app
 
