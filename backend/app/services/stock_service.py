@@ -83,6 +83,43 @@ async def sync_index_flags_async(conn: asyncpg.Connection) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Phase 2b — BSE equity upsert (dedup against NSE by ISIN)
+# ---------------------------------------------------------------------------
+
+async def sync_bse_equity_async(conn: asyncpg.Connection) -> dict:
+    """
+    Download the BSE equity scrip master and bulk-upsert BSE-only stocks.
+
+    Dual-listed companies (already present as NSE rows) are removed by matching
+    ISIN — the NSE listing is preferred because yfinance ".NS" data is more
+    reliable. Remaining BSE-only rows are upserted with exchange="BSE" and the
+    numeric scrip code as `symbol` (so "<code>.BO" resolves on yfinance).
+
+    Returns summary dict: {fetched, deduped, upserted}.
+    """
+    from app.core.scanner.universe.stock_master_sync import phase_bse_fetch_equity
+
+    loop = asyncio.get_event_loop()
+    rows = await loop.run_in_executor(_executor, phase_bse_fetch_equity)
+    fetched = len(rows)
+    if not rows:
+        return {"fetched": 0, "deduped": 0, "upserted": 0, "source": "BSE ListofScripData"}
+
+    # Drop BSE rows whose ISIN already exists as an NSE listing (dual-listed)
+    nse_isins = await q.get_existing_isins(conn, "NSE")
+    bse_only = [r for r in rows if not (r.get("isin") and r["isin"] in nse_isins)]
+    deduped = fetched - len(bse_only)
+
+    count = await q.upsert_stocks_batch(conn, bse_only)
+    logger.info(
+        "stock_service.sync_bse_equity: fetched=%d deduped=%d upserted=%d",
+        fetched, deduped, count,
+    )
+    return {"fetched": fetched, "deduped": deduped, "upserted": count,
+            "source": "BSE ListofScripData"}
+
+
+# ---------------------------------------------------------------------------
 # Phase 3 — yfinance fundamentals enrichment
 # ---------------------------------------------------------------------------
 

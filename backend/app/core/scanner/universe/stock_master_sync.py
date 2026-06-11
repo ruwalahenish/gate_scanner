@@ -178,6 +178,122 @@ def phase2_fetch_index_memberships() -> dict[str, set[str]]:
 
 
 # ---------------------------------------------------------------------------
+# Phase 2b — BSE equity master (ListofScripData API)
+# ---------------------------------------------------------------------------
+
+_BSE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://www.bseindia.com/markets/equity/EQReports/MarketWatch.aspx",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Origin": "https://www.bseindia.com",
+}
+
+_BSE_SCRIP_URL = "https://api.bseindia.com/BseIndiaAPI/api/ListofScripData/w"
+
+# BSE board groups to ingest. A/B are the actively-traded equity boards that
+# cover every meaningful BSE-only company. The illiquid penny boards (X, XT, Z,
+# T, etc.) are intentionally skipped — they would add thousands of near-dead
+# scrips that only inflate scan time and get dropped by the liquidity prefilter.
+_BSE_GROUPS = ("A", "B")
+
+
+def _bse_field(item: dict, *names: str) -> str | None:
+    """Return the first present, non-empty value among several candidate keys."""
+    for n in names:
+        if n in item and item[n] is not None:
+            v = item[n]
+            v = str(int(v)) if isinstance(v, (int, float)) else str(v).strip()
+            if v:
+                return v
+    return None
+
+
+def phase_bse_fetch_equity(groups: tuple[str, ...] = _BSE_GROUPS) -> list[dict]:
+    """
+    Download the BSE equity scrip master and return one dict per active scrip.
+
+    yfinance addresses BSE stocks by their *numeric scrip code* + ".BO"
+    (e.g. RELIANCE on BSE → "500325.BO"); the alpha ticker does not resolve.
+    We therefore store the numeric scrip code as `symbol` and exchange="BSE";
+    get_master_universe() appends ".BO" downstream.
+
+    Dual-listed (NSE+BSE) stocks are NOT removed here — the caller dedupes by
+    ISIN against the NSE rows already in stock_master, which is the only
+    reliable key (numeric BSE codes never equal alpha NSE symbols).
+
+    Returns a list of dicts shaped for upsert_stocks_batch(); [] on failure.
+    """
+    import json
+    import urllib.request
+
+    seen: dict[str, dict] = {}   # scrip_cd -> row (dedupe across groups)
+
+    for group in groups:
+        try:
+            url = (
+                f"{_BSE_SCRIP_URL}?Group={group}&Exportflag=1"
+                "&indexname=&scripname=&strsearch="
+            )
+            req = urllib.request.Request(url, headers=_BSE_HEADERS)
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+
+            items = (
+                data if isinstance(data, list)
+                else (data.get("Table") or data.get("Table1") or data.get("data") or [])
+            )
+
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                scrip_cd = _bse_field(item, "SCRIP_CD", "scrip_cd", "Scrip_Cd")
+                # Must be a numeric scrip code to be a valid yfinance .BO ticker
+                if not scrip_cd or not scrip_cd.isdigit():
+                    continue
+
+                name = _bse_field(
+                    item, "Scrip_Name", "scrip_name", "SCRIP_NAME",
+                    "Company_Name", "company_name", "ISSUER_NAME",
+                ) or scrip_cd
+                isin = _bse_field(item, "ISIN_NUMBER", "ISIN", "Isin_Number", "isin")
+                face = _bse_field(item, "FACE_VALUE", "Face_Value", "face_value")
+
+                try:
+                    face_value = float(face) if face else None
+                except ValueError:
+                    face_value = None
+
+                seen[scrip_cd] = {
+                    "symbol":       scrip_cd,
+                    "exchange":     "BSE",
+                    "company_name": name[:200],
+                    "isin":         (isin[:12] if isin else None),
+                    "series":       group,        # store BSE board group
+                    "face_value":   face_value,
+                    "listing_date": None,
+                    "market_lot":   None,
+                }
+        except Exception as e:
+            logger.warning("BSE group %s fetch failed: %s", group, e)
+
+    rows = list(seen.values())
+    if len(rows) < 50:
+        logger.warning(
+            "BSE scrip master returned only %d rows — API may have changed format",
+            len(rows),
+        )
+        return []
+
+    logger.info("Phase BSE: fetched %d BSE scrips from groups %s", len(rows), ",".join(groups))
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Phase 3 — yfinance fundamentals enrichment
 # ---------------------------------------------------------------------------
 

@@ -75,7 +75,7 @@ celery_app.conf.update(
         "weekly-stock-master-sync": {
             "task": "app.tasks.stock_tasks.sync_stock_master",
             "schedule": crontab(hour=6, minute=0, day_of_week="0"),
-            "args": (["equity", "index_flags"],),
+            "args": (["equity", "bse_equity", "index_flags"],),
             "options": {"queue": "admin"},
         },
         "fundamentals-enrichment-batch": {

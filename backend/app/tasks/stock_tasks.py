@@ -33,13 +33,16 @@ def sync_stock_master(self, phases: list[str] | None = None):
     """
     Full or partial sync of stock_master.
 
-    phases: list of any subset of ['equity', 'index_flags', 'fundamentals']
-            None = run all three in order
+    phases: list of any subset of
+            ['equity', 'bse_equity', 'index_flags', 'fundamentals']
+            None = run all in order
     """
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     try:
-        asyncio.run(_sync_async(phases or ["equity", "index_flags", "fundamentals"]))
+        asyncio.run(_sync_async(
+            phases or ["equity", "bse_equity", "index_flags", "fundamentals"]
+        ))
     except Exception:
         log.exception("sync_stock_master_failed")
         raise
@@ -80,6 +83,7 @@ async def _sync_async(phases: list[str]) -> None:
     from app.config import get_settings
     from app.services.stock_service import (
         sync_nse_equity_async,
+        sync_bse_equity_async,
         sync_index_flags_async,
         enrich_fundamentals_async,
     )
@@ -103,6 +107,13 @@ async def _sync_async(phases: list[str]) -> None:
             async with local_pool.acquire() as conn:
                 result = await sync_nse_equity_async(conn)
                 log.info("stock_master_equity_sync_done", **result)
+
+        # BSE must run after NSE equity so dedup-by-ISIN sees NSE listings.
+        if "bse_equity" in phases:
+            await _set_phase("bse_equity")
+            async with local_pool.acquire() as conn:
+                result = await sync_bse_equity_async(conn)
+                log.info("stock_master_bse_sync_done", **result)
 
         if "index_flags" in phases:
             await _set_phase("index_flags")

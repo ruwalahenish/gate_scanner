@@ -32,22 +32,43 @@ def _run_scan_sync(universe: list[str], mode: str, on_batch_sync=None) -> list[d
 
 async def _resolve_universe_from_db(mode: str) -> list[str]:
     """
-    Query stock_master for the universe corresponding to a scan mode.
-    Returns an empty list if stock_master is unpopulated or unavailable.
+    Query stock_master for the full Master Stock List.
+
+    The scanner always scans the complete master list (every non-delisted stock,
+    no index-based filtering) — the `mode` argument is retained only for call-site
+    compatibility and does NOT restrict the universe.
+
+    Returns an empty list if stock_master is unpopulated or unavailable; the
+    caller then falls back to the full live equity universe.
     """
     try:
         from app.db import get_pool
-        from app.queries.stock_master import get_symbols_for_mode
+        from app.queries.stock_master import get_master_universe
         pool = get_pool()
         if pool is None:
             return []
         async with pool.acquire() as conn:
-            symbols = await get_symbols_for_mode(conn, mode)
+            symbols = await get_master_universe(conn)
         if len(symbols) >= 10:
             return symbols
     except Exception:
         pass
     return []
+
+
+def _fetch_full_equity_master() -> list[str]:
+    """
+    Last-resort universe when stock_master is empty/unavailable.
+
+    Fetches the complete live NSE + BSE equity master (NSE EQUITY_L.csv plus
+    BSE-only listings) — NOT the static, index-restricted hardcoded list. This
+    guarantees the scanner never silently falls back to a Nifty-filtered subset.
+    """
+    try:
+        from app.core.scanner.universe.nse_universe import get_full_universe
+        return get_full_universe(all_equity=True)
+    except Exception:
+        return []
 
 
 async def run_scan_async(
@@ -64,12 +85,15 @@ async def run_scan_async(
                Awaited after each batch is ranked. May perform DB writes and
                Redis publishes.  Must not raise — wrap in try/except internally.
     """
-    # If no explicit universe, resolve from stock_master first.
-    # Falls back to get_full_universe() inside the pipeline if DB returns empty.
+    loop = asyncio.get_event_loop()
+
+    # If no explicit universe, resolve the full Master Stock List from stock_master.
+    # If the master table is empty/unavailable, fetch the full live NSE+BSE equity
+    # universe instead — never the static, index-restricted hardcoded list.
     if not universe:
         universe = await _resolve_universe_from_db(mode)
-
-    loop = asyncio.get_event_loop()
+    if not universe:
+        universe = await loop.run_in_executor(_executor, _fetch_full_equity_master)
 
     # Build a sync callback that bridges the thread-pool back to the event loop
     sync_cb = None

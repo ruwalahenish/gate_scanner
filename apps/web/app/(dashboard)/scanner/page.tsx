@@ -2,9 +2,8 @@
 import { useState, useMemo, useEffect, useRef, useCallback, memo } from "react";
 import {
   Box, Card, CardContent, Grid, Typography, Chip, Tab, Tabs,
-  LinearProgress, CircularProgress, Select, MenuItem,
-  FormControl, InputLabel, Stack, Pagination,
-  Button, Divider,
+  LinearProgress, CircularProgress, Stack, Pagination,
+  Button, Divider, Tooltip,
 } from "@mui/material";
 import {
   PlayArrow, Schedule, CheckCircleOutline,
@@ -20,8 +19,11 @@ import {
   useListScansQuery,
   useTriggerScanMutation,
   useStopScanMutation,
+  useGetScanStatusQuery,
+  scannerApi,
 } from "@/store/api/scannerApi";
-import { scanStarted, scanFailed } from "@/store/slices/wsSlice";
+import { useGetStockStatsQuery } from "@/store/api/stockMasterApi";
+import { scanStarted, scanFailed, scanCompleted } from "@/store/slices/wsSlice";
 import { formatIST, formatPrice } from "@/lib/formatters";
 import { STATUS_COLORS, BUY_CATEGORIES, CATEGORY_DISPLAY } from "@/lib/constants";
 import {
@@ -45,12 +47,13 @@ import type { CompletionSummary } from "@/store/slices/wsSlice";
 
 const PAGE_SIZE = 50;
 
-const SCAN_MODES = [
-  { value: "nifty50",  label: "Nifty 50"  },
-  { value: "nifty500", label: "Nifty 500" },
-  { value: "fno",      label: "F&O"       },
-  { value: "daily",    label: "Default"   },
-] as const;
+// The scanner always scans the full Master Stock List — no index-based universe
+// filtering. (Universe selection was removed; mode is fixed to "full".)
+const SCAN_MODE = "full";
+
+// If a scan runs longer than this without completing, surface a "taking longer
+// than expected" hint. We never auto-cancel — a full master scan can be slow.
+const SLOW_SCAN_THRESHOLD_SEC = 8 * 60;
 
 type FilterTab = "ALL" | "BUY" | "WATCH" | "NO_ACTION";
 
@@ -257,6 +260,12 @@ const ScanDetailPanel = memo(function ScanDetailPanel({
             value={hasReal ? pct : undefined}
             sx={{ height: 6, borderRadius: 3 }}
           />
+          {elapsed > SLOW_SCAN_THRESHOLD_SEC && (
+            <Typography variant="caption" color="warning.main" display="block" mt={0.6}>
+              Scanning the full master list is taking longer than usual — results
+              will still appear automatically. You can Stop the scan if needed.
+            </Typography>
+          )}
         </Box>
 
         {/* ── Signal counters ───────────────────────────────────────────── */}
@@ -392,10 +401,13 @@ export default function ScannerPage() {
   const streamingNoActCount   = useSelector(selectStreamingNoActCount);
 
   const [activeTab, setActiveTab]   = useState<FilterTab>("ALL");
-  const [scanMode, setScanMode]     = useState("nifty500");
   const [page, setPage]             = useState(1);
 
   const isScanning = !!scanProgress;
+
+  // Master Stock List size (for the read-only universe label)
+  const { data: stockStats } = useGetStockStatsQuery();
+  const masterCount = stockStats?.total ?? null;
 
   // ── Scan control ───────────────────────────────────────────────────────
   const [triggerScan, { isLoading: isTriggerLoading }] = useTriggerScanMutation();
@@ -438,7 +450,7 @@ export default function ScannerPage() {
 
   const handleRunScan = useCallback(async () => {
     try {
-      const { scan_id } = await triggerScan({ mode: scanMode }).unwrap();
+      const { scan_id } = await triggerScan({ mode: SCAN_MODE }).unwrap();
       dispatch(scanStarted(scan_id));
     } catch (err: any) {
       if (err?.status === 409) {
@@ -454,7 +466,50 @@ export default function ScannerPage() {
         console.error("Scan failed to start", err);
       }
     }
-  }, [triggerScan, scanMode, scans, dispatch]);
+  }, [triggerScan, scans, dispatch]);
+
+  // ── Completion-detection fallback (fixes "infinite scanning" on mobile) ──
+  // The WebSocket scan.complete/scan.failed event can be missed when a mobile
+  // browser backgrounds the tab and the socket reconnects (missed events are
+  // not replayed). We poll the scan status as a safety net so the UI always
+  // exits the scanning state once the backend finishes.
+  const activeScanId =
+    currentScanId ??
+    scans?.find((s) => s.status === "pending" || s.status === "running")?.id ??
+    null;
+
+  const { data: polledScan } = useGetScanStatusQuery(activeScanId as string, {
+    skip: !isScanning || !activeScanId,
+    pollingInterval: 5000,
+    refetchOnReconnect: true,
+    refetchOnFocus: true,
+  });
+
+  useEffect(() => {
+    if (!isScanning || !polledScan) return;
+    if (polledScan.status === "done") {
+      dispatch(scanCompleted({
+        scan_id:       polledScan.id,
+        signals_count: polledScan.signals_found ?? 0,
+      }));
+      dispatch(scannerApi.util.invalidateTags(["Signal", "Scan", "Dashboard"]));
+    } else if (polledScan.status === "failed") {
+      dispatch(scanFailed());
+    }
+  }, [isScanning, polledScan, dispatch]);
+
+  // When the tab returns to the foreground mid-scan, immediately re-sync the
+  // scan list + results instead of waiting for the next poll tick.
+  useEffect(() => {
+    if (!isScanning) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        dispatch(scannerApi.util.invalidateTags(["Scan", "Signal"]));
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [isScanning, dispatch]);
 
   // ── Fetched signals (post-scan, paginated) ─────────────────────────────
   // Signals are always daily (signal_timeframe="1d") — no TF filter needed.
@@ -517,24 +572,19 @@ export default function ScannerPage() {
           </Typography>
         </Box>
 
-        {/* Mode selector */}
-        <FormControl size="small" sx={{ minWidth: 130 }}>
-          <InputLabel id="scan-mode-label" sx={{ fontSize: "0.8rem" }}>Universe</InputLabel>
-          <Select
-            labelId="scan-mode-label"
-            value={scanMode}
-            label="Universe"
-            onChange={(e) => setScanMode(e.target.value)}
-            disabled={isScanning}
-            sx={{ fontSize: "0.82rem" }}
-          >
-            {SCAN_MODES.map((m) => (
-              <MenuItem key={m.value} value={m.value} sx={{ fontSize: "0.82rem" }}>
-                {m.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        {/* Universe — fixed to the full Master Stock List (no index filtering) */}
+        <Tooltip title="Scans the complete Master Stock List — no Nifty 50 / 500 / F&O filtering">
+          <Chip
+            label={
+              masterCount != null
+                ? `Master List · ${masterCount.toLocaleString()} stocks`
+                : "Master Stock List"
+            }
+            size="small"
+            variant="outlined"
+            sx={{ fontWeight: 600, fontSize: "0.72rem", borderColor: "rgba(255,255,255,0.18)" }}
+          />
+        </Tooltip>
 
         {/* Run Scan button */}
         <Button
@@ -659,7 +709,7 @@ export default function ScannerPage() {
               }
               description={
                 !latestScan
-                  ? "Select a universe and click Run Scan to start"
+                  ? "Click Run Scan to scan the full Master Stock List"
                   : "Try a different filter or run a new scan"
               }
             />

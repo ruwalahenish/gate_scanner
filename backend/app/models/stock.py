@@ -61,7 +61,7 @@ class StockListResponse(BaseModel):
 
 
 class SyncTriggerRequest(BaseModel):
-    phases: list[str] = ["equity", "index_flags", "fundamentals"]
+    phases: list[str] = ["equity", "bse_equity", "index_flags", "fundamentals"]
 
 
 class SyncTriggerResponse(BaseModel):

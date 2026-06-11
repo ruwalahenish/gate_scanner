@@ -446,6 +446,45 @@ _MODE_TO_INDEX_FILTER: dict[str, str | None] = {
 }
 
 
+async def get_existing_isins(
+    conn: asyncpg.Connection, exchange: str = "NSE"
+) -> set[str]:
+    """Return the set of non-null ISINs already stored for an exchange.
+    Used to dedupe dual-listed BSE stocks against NSE rows by ISIN."""
+    rows = await conn.fetch(
+        "SELECT DISTINCT isin FROM stock_master "
+        "WHERE exchange = $1 AND isin IS NOT NULL",
+        exchange,
+    )
+    return {r["isin"] for r in rows}
+
+
+async def get_master_universe(conn: asyncpg.Connection) -> list[str]:
+    """
+    Return the complete Master Stock List for the GATE scanner.
+
+    This is every non-delisted stock in stock_master across ALL exchanges, with
+    NO index-based filtering whatsoever (no Nifty 50 / 500 / F&O restriction).
+    The scanner must always scan the full master list.
+
+    BSE-only rows are returned with a ".BO" suffix so that config.yf_symbol() /
+    data_fetcher route them to the correct Yahoo Finance feed; NSE symbols are
+    returned bare (".NS" is appended downstream).
+    """
+    rows = await conn.fetch(
+        """
+        SELECT CASE WHEN exchange = 'BSE' AND symbol NOT LIKE '%.BO'
+                    THEN symbol || '.BO'
+                    ELSE symbol
+               END AS sym
+        FROM stock_master
+        WHERE sync_status != 'delisted'
+        ORDER BY sym
+        """
+    )
+    return [r["sym"] for r in rows]
+
+
 async def get_symbols_for_mode(conn: asyncpg.Connection, mode: str) -> list[str]:
     """
     Return NSE symbols from stock_master filtered by scan mode.

@@ -74,7 +74,7 @@ async def trigger_sync(
     redis: aioredis.Redis = Depends(redis_client),
 ):
     """Dispatch a Celery sync task for the requested phases."""
-    valid_phases = {"equity", "index_flags", "fundamentals"}
+    valid_phases = {"equity", "bse_equity", "index_flags", "fundamentals"}
     bad = [p for p in body.phases if p not in valid_phases]
     if bad:
         raise HTTPException(status_code=422, detail=f"Unknown phases: {bad}")
