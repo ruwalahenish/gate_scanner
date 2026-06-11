@@ -61,6 +61,7 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
     sid = UUID(scan_id)
     t0 = time.perf_counter()
     total_inserted = 0
+    universe_total = 0  # captured from batch callbacks — written to scans.universe_size
     final_status = "failed"
 
     # Guarantee the scan row exists before the pipeline starts.
@@ -82,7 +83,8 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
 
     async def on_batch(batch: list, done: int, total: int):
         """Called after each batch of ranked symbols — insert to DB and broadcast."""
-        nonlocal total_inserted
+        nonlocal total_inserted, universe_total
+        universe_total = total
         try:
             async with db_pool.acquire() as conn:
                 count = await insert_signals_batch(conn, sid, batch)
@@ -128,6 +130,7 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
             await update_scan_status(
                 conn, sid, "done",
                 signals_found=total_inserted,
+                universe_size=universe_total,
                 duration_sec=round(duration, 2),
             )
 

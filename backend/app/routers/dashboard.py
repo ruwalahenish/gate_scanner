@@ -13,15 +13,17 @@ import redis.asyncio as aioredis
 import structlog
 from fastapi import APIRouter, Response
 
+from app.config import get_settings
 from app.db import get_pool
 from app.redis_client import get_redis
 from app.services.price_service import get_bulk_prices
+from app.utils.display import enrich_signal_display
+from app.utils.serialization import serialize_row
 
 log = structlog.get_logger()
 router = APIRouter(tags=["dashboard"])
 
 _CACHE_KEY = "dashboard:stats"
-_CACHE_TTL = 60  # seconds
 
 
 # ---------------------------------------------------------------------------
@@ -47,8 +49,9 @@ async def get_dashboard(response: Response):
         cached = await redis.get(_CACHE_KEY)
         if cached:
             return json.loads(cached)
-    except Exception:
-        pass  # Redis unavailable — fall through to DB
+    except Exception as exc:
+        # Redis unavailable — fall through to DB
+        log.warning("dashboard_cache_read_failed", error=str(exc))
 
     try:
         pool = get_pool()
@@ -60,9 +63,11 @@ async def get_dashboard(response: Response):
 
     try:
         if redis is not None:
-            await redis.set(_CACHE_KEY, json.dumps(result, default=str), ex=_CACHE_TTL)
-    except Exception:
-        pass
+            await redis.set(
+                _CACHE_KEY, json.dumps(result, default=str), ex=get_settings().dashboard_cache_ttl
+            )
+    except Exception as exc:
+        log.warning("dashboard_cache_write_failed", error=str(exc))
 
     return result
 
@@ -122,7 +127,7 @@ async def _build(conn: asyncpg.Connection, redis: aioredis.Redis) -> dict:
                LIMIT 5""",
             scan_id,
         )
-        recent_opportunities = [_enrich(_serialize(r)) for r in opp_rows]
+        recent_opportunities = [enrich_signal_display(serialize_row(r)) for r in opp_rows]
 
     # ── Watchlist ──────────────────────────────────────────────────────────
     wl_counts = await conn.fetchrow(
@@ -162,8 +167,8 @@ async def _build(conn: asyncpg.Connection, redis: aioredis.Redis) -> dict:
                 (prices.get(p["symbol"], float(p["avg_entry"])) - float(p["avg_entry"])) * p["quantity"]
                 for p in open_positions
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("dashboard_price_fetch_failed", error=str(exc))
 
     total_trades = (pt_trade_stats["total_trades"] or 0) if pt_trade_stats else 0
     winning_trades = (pt_trade_stats["winning_trades"] or 0) if pt_trade_stats else 0
@@ -186,7 +191,7 @@ async def _build(conn: asyncpg.Connection, redis: aioredis.Redis) -> dict:
            FROM trades WHERE pnl_abs IS NOT NULL
            ORDER BY executed_at DESC LIMIT 5"""
     )
-    recent_trades = [_serialize(r) for r in recent_trade_rows]
+    recent_trades = [serialize_row(r) for r in recent_trade_rows]
 
     # ── Backtesting ────────────────────────────────────────────────────────
     bt_stats_row = await conn.fetchrow(
@@ -209,8 +214,8 @@ async def _build(conn: asyncpg.Connection, redis: aioredis.Redis) -> dict:
     try:
         await redis.ping()
         redis_ok = True
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("dashboard_redis_ping_failed", error=str(exc))
 
     system_health = {
         "db_ok":                True,  # we are connected if we reached here
@@ -232,30 +237,6 @@ async def _build(conn: asyncpg.Connection, redis: aioredis.Redis) -> dict:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-_DISPLAY_STATUS = {
-    "INVESTMENT": "BUY",
-    "SWING":      "BUY",
-    "POSITIONAL": "BUY",
-    "WATCH":      "WATCH",
-    "IGNORE":     "NO_ACTION",
-}
-
-_DISPLAY_CATEGORY = {
-    "INVESTMENT": "Long-Term Buy",
-    "SWING":      "Swing Buy",
-    "POSITIONAL": "Positional Buy",
-    "WATCH":      "Watch",
-    "IGNORE":     "No Action",
-}
-
-
-def _enrich(d: dict) -> dict:
-    cat = d.get("category", "IGNORE")
-    d["display_status"] = _DISPLAY_STATUS.get(cat, "NO_ACTION")
-    d["display_category"] = _DISPLAY_CATEGORY.get(cat, "No Action")
-    return d
-
 
 def _empty_dashboard() -> dict:
     return {
@@ -279,15 +260,3 @@ def _empty_dashboard() -> dict:
         "recent_trades": [],
         "system_health": {"db_ok": False, "redis_ok": False, "last_scan_duration_sec": None},
     }
-
-
-def _serialize(row) -> dict:
-    d = dict(row)
-    for k, v in d.items():
-        if hasattr(v, "isoformat"):
-            d[k] = v.isoformat()
-        elif type(v).__name__ == "UUID":
-            d[k] = str(v)
-        elif type(v).__name__ == "Decimal":
-            d[k] = float(v)
-    return d

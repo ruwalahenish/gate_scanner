@@ -1,13 +1,14 @@
 from uuid import uuid4, UUID
 from datetime import date
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 import asyncpg
 
 from app.dependencies import db_conn
 from app.limiter import limiter
 from app.tasks.backtest_tasks import run_backtest_task
+from app.utils.serialization import serialize_row
 
 router = APIRouter(tags=["backtests"])
 
@@ -20,9 +21,14 @@ class RunBacktestRequest(BaseModel):
 
 
 @router.get("")
-async def list_backtests(conn: asyncpg.Connection = Depends(db_conn)):
+async def list_backtests(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    conn: asyncpg.Connection = Depends(db_conn),
+):
     rows = await conn.fetch(
-        "SELECT * FROM backtests ORDER BY started_at DESC LIMIT 20"
+        "SELECT * FROM backtests ORDER BY started_at DESC LIMIT $1 OFFSET $2",
+        limit, offset,
     )
     return [_serialize(r) for r in rows]
 
@@ -158,13 +164,5 @@ async def get_trades_for_symbol(
     return [_serialize(r) for r in rows]
 
 
-def _serialize(row) -> dict:
-    d = dict(row)
-    for k, v in d.items():
-        if hasattr(v, "isoformat"):
-            d[k] = v.isoformat()
-        elif type(v).__name__ == "UUID":
-            d[k] = str(v)
-        elif type(v).__name__ == "Decimal":
-            d[k] = float(v)
-    return d
+# Canonical implementation lives in app/utils/serialization.py
+_serialize = serialize_row

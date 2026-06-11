@@ -10,6 +10,7 @@ from app.queries import portfolio as q
 from app.services.portfolio_service import execute_sell
 from app.services.price_service import get_bulk_prices
 from app.exceptions import PositionNotFoundError
+from app.utils.serialization import serialize_row
 import redis.asyncio as aioredis
 
 router = APIRouter(tags=["paper_trading"])
@@ -114,7 +115,7 @@ async def set_capital(
 @router.put("/positions/{position_id}/sl")
 async def update_sl(
     position_id: UUID,
-    sl: float,
+    sl: float = Query(..., gt=0, description="New stop-loss price (must be positive)"),
     level: str = "manual",
     conn: asyncpg.Connection = Depends(db_conn),
 ):
@@ -202,13 +203,5 @@ def _empty_performance() -> dict:
     }
 
 
-def _serialize(row) -> dict:
-    d = dict(row)
-    for k, v in d.items():
-        if hasattr(v, "isoformat"):
-            d[k] = v.isoformat()
-        elif type(v).__name__ == "UUID":
-            d[k] = str(v)
-        elif type(v).__name__ == "Decimal":
-            d[k] = float(v)
-    return d
+# Canonical implementation lives in app/utils/serialization.py
+_serialize = serialize_row

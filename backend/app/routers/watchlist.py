@@ -2,18 +2,23 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 import asyncpg
 
 from app.dependencies import db_conn
+from app.utils.serialization import serialize_row
 
 router = APIRouter(tags=["watchlist"])
+
+_SYMBOL_PATTERN = r"^[A-Za-z0-9&\-]{1,20}$"
 
 
 @router.get("")
 async def get_watchlist(
     status: str | None = Query(None),
     source: str | None = Query(None),
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     conn: asyncpg.Connection = Depends(db_conn),
 ):
     """
-    Returns all watchlist items with enriched signal data.
+    Returns watchlist items with enriched signal data (bounded — newest first).
     Optional filters: status (active|buy_triggered|target_hit|sl_hit|closed),
                       source (manual|scanner).
     """
@@ -32,8 +37,8 @@ async def get_watchlist(
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     rows = await conn.fetch(
-        f"SELECT * FROM watchlist {where} ORDER BY added_at DESC",
-        *params,
+        f"SELECT * FROM watchlist {where} ORDER BY added_at DESC LIMIT ${idx} OFFSET ${idx + 1}",
+        *params, limit, offset,
     )
     return [_serialize(r) for r in rows]
 
@@ -54,8 +59,8 @@ async def get_watchlist_history(
 
 @router.post("")
 async def add_to_watchlist(
-    symbol: str,
-    notes: str | None = None,
+    symbol: str = Query(..., min_length=1, max_length=20, pattern=_SYMBOL_PATTERN),
+    notes: str | None = Query(None, max_length=500),
     conn: asyncpg.Connection = Depends(db_conn),
 ):
     sym = symbol.upper()
@@ -87,13 +92,5 @@ async def remove_from_watchlist(
     return {"symbol": sym, "removed": True}
 
 
-def _serialize(row) -> dict:
-    d = dict(row)
-    for k, v in d.items():
-        if hasattr(v, "isoformat"):
-            d[k] = v.isoformat()
-        elif type(v).__name__ == "UUID":
-            d[k] = str(v)
-        elif type(v).__name__ == "Decimal":
-            d[k] = float(v)
-    return d
+# Canonical implementation lives in app/utils/serialization.py
+_serialize = serialize_row

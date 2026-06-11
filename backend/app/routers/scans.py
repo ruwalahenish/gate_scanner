@@ -6,8 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 import asyncpg
 
+from app.config import get_settings
 from app.dependencies import db_conn, redis_client
 from app.limiter import limiter
+from app.utils.display import enrich_signal_display
+from app.utils.serialization import serialize_row
 from app.models.scan import TriggerScanRequest, TriggerScanResponse, ScanStatus
 from app.queries.scans import create_scan, get_scan, list_scans, has_running_scan, update_scan_status
 from app.queries.signals import get_latest_signals
@@ -25,37 +28,12 @@ router = APIRouter(tags=["scans"])
 SCAN_LOCK_KEY = "scan:running"
 SCAN_LOCK_TTL = 600  # 10 minutes
 
-_SIGNALS_CACHE_TTL = 30
 _SIGNALS_CACHE_PREFIX = "signals:list"
-
-# Category → user-facing display status
-_DISPLAY_STATUS = {
-    "INVESTMENT": "BUY",
-    "SWING": "BUY",
-    "POSITIONAL": "BUY",
-    "WATCH": "WATCH",
-    "IGNORE": "NO_ACTION",
-}
-
-_DISPLAY_CATEGORY = {
-    "INVESTMENT": "Long-Term Buy",
-    "SWING": "Swing Buy",
-    "POSITIONAL": "Positional Buy",
-    "WATCH": "Watch",
-    "IGNORE": "No Action",
-}
 
 
 def _signals_cache_key(status, category, min_rank, min_gate, side, timeframe, limit, offset) -> str:
     raw = f"{status}:{category}:{min_rank}:{min_gate}:{side}:{timeframe}:{limit}:{offset}"
     return f"{_SIGNALS_CACHE_PREFIX}:{hashlib.md5(raw.encode()).hexdigest()}"
-
-
-def _enrich_signal(d: dict) -> dict:
-    cat = d.get("category", "IGNORE")
-    d["display_status"] = _DISPLAY_STATUS.get(cat, "NO_ACTION")
-    d["display_category"] = _DISPLAY_CATEGORY.get(cat, "No Action")
-    return d
 
 
 @router.get("", response_model=list[ScanStatus])
@@ -147,7 +125,7 @@ async def get_latest_signals_endpoint(
         offset=offset if status != "BUY" else 0,
     )
 
-    items = [_enrich_signal(_serialize_signal(r)) for r in rows]
+    items = [enrich_signal_display(serialize_row(r, _JSONB_COLS)) for r in rows]
 
     # BUY filter: keep INVESTMENT/SWING/POSITIONAL only
     if status == "BUY":
@@ -157,7 +135,7 @@ async def get_latest_signals_endpoint(
 
     result = {"total": total, "items": items}
     try:
-        await redis.set(cache_key, json.dumps(result), ex=_SIGNALS_CACHE_TTL)
+        await redis.set(cache_key, json.dumps(result), ex=get_settings().signals_cache_ttl)
     except Exception:
         pass
 
@@ -194,7 +172,7 @@ async def get_scan_signals(
         offset=offset if status != "BUY" else 0,
     )
 
-    items = [_enrich_signal(_serialize_signal(r)) for r in rows]
+    items = [enrich_signal_display(serialize_row(r, _JSONB_COLS)) for r in rows]
     if status == "BUY":
         items = [i for i in items if i["display_status"] == "BUY"]
         items = items[offset: offset + limit]
@@ -305,29 +283,6 @@ async def get_scan_status(
     return dict(row)
 
 
-def _serialize_schedule(row) -> dict:
-    d = dict(row)
-    for k, v in d.items():
-        if hasattr(v, "isoformat"):
-            d[k] = v.isoformat()
-    return d
+_serialize_schedule = serialize_row
 
-
-_JSONB_COLS = {"trailing_plan"}
-
-
-def _serialize_signal(row) -> dict:
-    d = dict(row)
-    for k, v in list(d.items()):
-        if hasattr(v, "isoformat"):
-            d[k] = v.isoformat()
-        elif type(v).__name__ == "UUID":
-            d[k] = str(v)
-        elif type(v).__name__ == "Decimal":
-            d[k] = float(v)
-        elif k in _JSONB_COLS and isinstance(v, str):
-            try:
-                d[k] = json.loads(v)
-            except (json.JSONDecodeError, TypeError):
-                pass
-    return d
+_JSONB_COLS = frozenset({"trailing_plan"})

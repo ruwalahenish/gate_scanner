@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 import asyncpg
 
 from app.queries import stock_master as q
+from app.utils.serialization import serialize_row
 
 logger = logging.getLogger(__name__)
 
@@ -154,11 +155,5 @@ async def search_stocks_async(
 # Serialization helper
 # ---------------------------------------------------------------------------
 
-def _serialize(row: asyncpg.Record) -> dict:
-    d = dict(row)
-    for k, v in d.items():
-        if hasattr(v, "isoformat"):
-            d[k] = v.isoformat()
-        elif type(v).__name__ == "Decimal":
-            d[k] = float(v)
-    return d
+# Canonical implementation lives in app/utils/serialization.py
+_serialize = serialize_row

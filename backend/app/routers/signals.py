@@ -5,16 +5,19 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 import asyncpg
 import redis.asyncio as aioredis
 
+from app.config import get_settings
 from app.dependencies import db_conn, redis_client
 from app.queries.signals import get_latest_signals, get_signal_history
 from app.services.scan_service import analyze_symbol_async, fetch_ohlcv_async
+from app.utils.serialization import serialize_row
 
 router = APIRouter(tags=["signals"])
 
-# Server-side Redis cache for the filtered signals list (30 s TTL).
+# Server-side Redis cache for the filtered signals list.
 # Invalidated by scan_tasks.py when a scan completes (DEL signals:list:*).
-_SIGNALS_CACHE_TTL = 30
 _SIGNALS_CACHE_PREFIX = "signals:list"
+
+_JSONB_COLS = frozenset({"trailing_plan"})
 
 
 def _cache_key(category, min_rank, min_gate, side, timeframe, limit, offset) -> str:
@@ -54,11 +57,10 @@ async def list_signals(
         limit=limit,
         offset=offset,
     )
-    result = {"total": total, "items": [_serialize(r) for r in rows]}
+    result = {"total": total, "items": [serialize_row(r, _JSONB_COLS) for r in rows]}
 
-    # Cache in Redis for 30 s
     try:
-        await redis.set(key, json.dumps(result), ex=_SIGNALS_CACHE_TTL)
+        await redis.set(key, json.dumps(result), ex=get_settings().signals_cache_ttl)
     except Exception:
         pass
 
@@ -72,7 +74,7 @@ async def signal_history(
     conn: asyncpg.Connection = Depends(db_conn),
 ):
     rows = await get_signal_history(conn, symbol.upper(), limit)
-    return [_serialize(r) for r in rows]
+    return [serialize_row(r, _JSONB_COLS) for r in rows]
 
 
 @router.get("/{symbol}/analysis")
@@ -98,22 +100,3 @@ async def chart_data(
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Data fetch failed: {str(e)}")
 
-
-_JSONB_COLS = {"trailing_plan"}
-
-
-def _serialize(row) -> dict:
-    d = dict(row)
-    for k, v in list(d.items()):
-        if hasattr(v, "isoformat"):
-            d[k] = v.isoformat()
-        elif type(v).__name__ == "UUID":
-            d[k] = str(v)
-        elif type(v).__name__ == "Decimal":
-            d[k] = float(v)
-        elif k in _JSONB_COLS and isinstance(v, str):
-            try:
-                d[k] = json.loads(v)
-            except (json.JSONDecodeError, TypeError):
-                pass
-    return d

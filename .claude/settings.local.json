@@ -79,7 +79,9 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(git -C d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner log --all --oneline -- apps/web/.env.local -- .env)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(python -m py_compile app/utils/serialization.py app/utils/display.py app/config.py app/routers/dashboard.py app/routers/scans.py app/routers/signals.py app/routers/backtests.py app/routers/paper_trading.py app/routers/watchlist.py app/routers/stock_master.py app/services/stock_service.py app/tasks/scanner_tasks.py app/models/paper_trading.py)",
+      "Bash(python -c \"from app.main import app; print\\('app import OK'\\)\")"
     ],
     "additionalDirectories": [
       "\\mnt\\d\\gate-scanner",

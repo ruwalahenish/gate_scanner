@@ -1,14 +1,14 @@
-from pydantic import BaseModel, UUID4, field_validator
+from pydantic import BaseModel, Field, UUID4, field_validator
 from datetime import datetime
 from typing import Optional
 
 
 class SellRequest(BaseModel):
     position_id: str
-    quantity: int
-    price: float
+    quantity: int = Field(..., ge=1, description="Shares to sell (≥ 1)")
+    price: float = Field(..., gt=0, description="Exit price (must be positive)")
     exit_reason: str = "manual"
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=500)
 
     @field_validator("exit_reason")
     @classmethod

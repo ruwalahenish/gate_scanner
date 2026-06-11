@@ -25,6 +25,7 @@ from app.queries.stock_master import (
     list_stocks_with_signals,
     search_stocks,
 )
+from app.utils.serialization import serialize_row
 
 router = APIRouter(tags=["stock_master"])
 
@@ -272,11 +273,5 @@ async def get_backtest_trades(
 # Serialization helper (same pattern as signals.py, portfolio.py, etc.)
 # ---------------------------------------------------------------------------
 
-def _serialize(row) -> dict:
-    d = dict(row)
-    for k, v in list(d.items()):
-        if hasattr(v, "isoformat"):
-            d[k] = v.isoformat()
-        elif type(v).__name__ == "Decimal":
-            d[k] = float(v)
-    return d
+# Canonical implementation lives in app/utils/serialization.py
+_serialize = serialize_row

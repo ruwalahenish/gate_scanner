@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # Scan concurrency
     scan_executor_workers: int = 4
 
+    # Redis cache TTLs (seconds)
+    dashboard_cache_ttl: int = 60
+    signals_cache_ttl: int = 30
+
     # Optional NeonDB read-replica URL (leave empty to fall back to primary)
     read_replica_url: str = ""
 
