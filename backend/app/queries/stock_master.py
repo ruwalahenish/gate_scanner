@@ -138,6 +138,22 @@ async def update_fundamentals(
     profit_growth: float | None = None,
     debt_to_equity: float | None = None,
     profit_margin: float | None = None,
+    # Extended Screener.in fields — use COALESCE so yfinance fallback
+    # never overwrites existing Screener data with NULL.
+    roce_actual: float | None = None,
+    opm_latest: float | None = None,
+    free_cash_flow: int | None = None,
+    promoter_holding: float | None = None,
+    fii_holding: float | None = None,
+    dii_holding: float | None = None,
+    debtor_days: float | None = None,
+    revenue_cagr_3y: float | None = None,
+    profit_cagr_3y: float | None = None,
+    screener_price: float | None = None,
+    screener_52w_high: float | None = None,
+    screener_52w_low: float | None = None,
+    screener_price_change_pct: float | None = None,
+    data_source: str | None = None,
 ) -> None:
     await conn.execute("""
         UPDATE stock_master SET
@@ -155,6 +171,22 @@ async def update_fundamentals(
             profit_growth  = $14,
             debt_to_equity = $15,
             profit_margin  = $16,
+            roce_actual               = COALESCE($17, roce_actual),
+            opm_latest                = COALESCE($18, opm_latest),
+            free_cash_flow            = COALESCE($19, free_cash_flow),
+            promoter_holding          = COALESCE($20, promoter_holding),
+            fii_holding               = COALESCE($21, fii_holding),
+            dii_holding               = COALESCE($22, dii_holding),
+            debtor_days               = COALESCE($23, debtor_days),
+            revenue_cagr_3y           = COALESCE($24, revenue_cagr_3y),
+            profit_cagr_3y            = COALESCE($25, profit_cagr_3y),
+            screener_price            = COALESCE($26, screener_price),
+            screener_52w_high         = COALESCE($27, screener_52w_high),
+            screener_52w_low          = COALESCE($28, screener_52w_low),
+            screener_price_change_pct = COALESCE($29, screener_price_change_pct),
+            screener_price_updated_at = CASE WHEN $26 IS NOT NULL THEN NOW()
+                                             ELSE screener_price_updated_at END,
+            data_source               = COALESCE($30, data_source),
             sync_status    = 'enriched',
             last_synced_at = NOW(),
             sync_error     = NULL,
@@ -163,7 +195,88 @@ async def update_fundamentals(
     """, symbol, exchange, sector, industry, market_cap,
         _f(pe_ratio), _f(pb_ratio), _f(dividend_yield), _f(eps), _f(book_value),
         _f(roe), _f(roce), _f(revenue_growth), _f(profit_growth),
-        _f(debt_to_equity), _f(profit_margin))
+        _f(debt_to_equity), _f(profit_margin),
+        _f(roce_actual), _f(opm_latest),
+        free_cash_flow,                  # BIGINT — no float coercion
+        _f(promoter_holding), _f(fii_holding), _f(dii_holding),
+        _f(debtor_days), _f(revenue_cagr_3y), _f(profit_cagr_3y),
+        _f(screener_price), _f(screener_52w_high), _f(screener_52w_low),
+        _f(screener_price_change_pct),
+        data_source)
+
+
+async def update_screener_data(
+    conn: asyncpg.Connection,
+    symbol: str,
+    exchange: str,
+    data: dict,
+) -> None:
+    """
+    Upsert Screener.in data for a single stock. Used by screener_tasks.py
+    weekly batch sync. Updates ALL overlapping fields (pe_ratio, roe, etc.)
+    plus the extended Screener-only columns.
+    """
+    await conn.execute("""
+        UPDATE stock_master SET
+            market_cap                = COALESCE($3,  market_cap),
+            pe_ratio                  = COALESCE($4,  pe_ratio),
+            pb_ratio                  = COALESCE($5,  pb_ratio),
+            dividend_yield            = COALESCE($6,  dividend_yield),
+            eps                       = COALESCE($7,  eps),
+            book_value                = COALESCE($8,  book_value),
+            roe                       = COALESCE($9,  roe),
+            revenue_growth            = COALESCE($10, revenue_growth),
+            profit_growth             = COALESCE($11, profit_growth),
+            debt_to_equity            = COALESCE($12, debt_to_equity),
+            profit_margin             = COALESCE($13, profit_margin),
+            roce_actual               = COALESCE($14, roce_actual),
+            opm_latest                = COALESCE($15, opm_latest),
+            free_cash_flow            = COALESCE($16, free_cash_flow),
+            promoter_holding          = COALESCE($17, promoter_holding),
+            fii_holding               = COALESCE($18, fii_holding),
+            dii_holding               = COALESCE($19, dii_holding),
+            debtor_days               = COALESCE($20, debtor_days),
+            revenue_cagr_3y           = COALESCE($21, revenue_cagr_3y),
+            profit_cagr_3y            = COALESCE($22, profit_cagr_3y),
+            screener_price            = COALESCE($23, screener_price),
+            screener_52w_high         = COALESCE($24, screener_52w_high),
+            screener_52w_low          = COALESCE($25, screener_52w_low),
+            screener_price_change_pct = COALESCE($26, screener_price_change_pct),
+            screener_price_updated_at = CASE WHEN $23 IS NOT NULL THEN NOW()
+                                             ELSE screener_price_updated_at END,
+            data_source               = 'screener',
+            sync_status               = 'enriched',
+            last_synced_at            = NOW(),
+            sync_error                = NULL,
+            updated_at                = NOW()
+        WHERE symbol = $1 AND exchange = $2
+    """,
+        symbol, exchange,
+        data.get("market_cap"),
+        _f(data.get("pe_ratio")),
+        _f(data.get("pb_ratio")),
+        _f(data.get("dividend_yield")),
+        _f(data.get("eps")),
+        _f(data.get("book_value")),
+        _f(data.get("roe")),
+        _f(data.get("revenue_growth")),
+        _f(data.get("profit_growth")),
+        _f(data.get("debt_to_equity")),
+        _f(data.get("profit_margin")),
+        _f(data.get("roce_actual")),
+        _f(data.get("opm_latest")),
+        data.get("free_cash_flow"),      # BIGINT
+        _f(data.get("promoter_holding")),
+        _f(data.get("fii_holding")),
+        _f(data.get("dii_holding")),
+        _f(data.get("debtor_days")),
+        _f(data.get("revenue_cagr_3y")),
+        _f(data.get("profit_cagr_3y")),
+        _f(data.get("screener_price")),
+        _f(data.get("screener_52w_high")),
+        _f(data.get("screener_52w_low")),
+        _f(data.get("screener_price_change_pct")),
+    )
 
 
 async def mark_sync_failed(
@@ -511,7 +624,9 @@ async def get_fundamentals_map(conn: asyncpg.Connection) -> dict[str, dict]:
         """
         SELECT symbol, sector, industry, market_cap, pe_ratio, pb_ratio,
                dividend_yield, eps, book_value, roe, roce, revenue_growth,
-               profit_growth, debt_to_equity, profit_margin
+               profit_growth, debt_to_equity, profit_margin,
+               roce_actual, opm_latest, promoter_holding,
+               revenue_cagr_3y, profit_cagr_3y
         FROM stock_master
         WHERE sync_status != 'delisted'
         """

@@ -44,12 +44,20 @@ async def lifespan(_app: FastAPI):
     log.info("startup_begin")
     await create_pool()
     redis = await create_redis()
-    asyncio.create_task(manager.listen_redis(redis))
+    redis_listener_task = asyncio.create_task(manager.listen_redis(redis))
     log.info("startup_complete")
 
     yield  # ← application runs here
 
     # ── Shutdown ─────────────────────────────────────────────────────
+    # Cancel the Redis pub/sub listener before closing Redis so it doesn't
+    # raise ConnectionError ("Connection closed by server.") on shutdown.
+    redis_listener_task.cancel()
+    try:
+        await redis_listener_task
+    except asyncio.CancelledError:
+        pass
+
     await close_pool()
     await close_redis()
     from app.services.scan_service import _executor as scan_executor

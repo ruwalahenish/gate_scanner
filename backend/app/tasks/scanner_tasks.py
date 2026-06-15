@@ -141,6 +141,7 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
             keys = await redis.keys("signals:list:*")
             if keys:
                 await redis.delete(*keys)
+            await redis.delete("signals:counts:latest")
         except Exception:
             pass
 

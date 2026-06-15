@@ -122,7 +122,7 @@ async def get_latest_signals(
     where = [
         "sc.status = 'done'",
         "sc.id = (SELECT id FROM scans WHERE status='done' ORDER BY triggered_at DESC LIMIT 1)",
-        "s.rank_score >= $1",
+        "COALESCE(s.rank_score, 0) >= $1",
         "COALESCE(s.gate_strength, 0) >= $2",
     ]
     params: list = [min_rank, min_gate]

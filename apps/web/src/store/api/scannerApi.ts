@@ -13,6 +13,14 @@ export interface ScanFilters {
   offset?: number;
 }
 
+export interface SignalCounts {
+  total: number;
+  buy_count: number;
+  breakout_count: number;
+  watch_count: number;
+  no_action_count: number;
+}
+
 export interface TriggerScanRequest {
   mode?: string;
   universe?: string[];
@@ -91,6 +99,12 @@ export const scannerApi = createApi({
       providesTags: ["Signal"],
     }),
 
+    getSignalCounts: builder.query<SignalCounts, void>({
+      query: () => "/scans/latest/signals/counts",
+      providesTags: ["Signal"],
+      keepUnusedDataFor: 120,
+    }),
+
     // ── Scan management ────────────────────────────────────────────────────
     triggerScan: builder.mutation<{ scan_id: string }, TriggerScanRequest>({
       query: (body) => ({
@@ -142,6 +156,7 @@ export const scannerApi = createApi({
 export const {
   useGetDashboardQuery,
   useGetScanResultsQuery,
+  useGetSignalCountsQuery,
   useTriggerScanMutation,
   useStopScanMutation,
   useGetScanStatusQuery,

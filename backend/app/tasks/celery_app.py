@@ -16,6 +16,7 @@ celery_app = Celery(
         "app.tasks.backtest_tasks",
         "app.tasks.stock_tasks",
         "app.tasks.trading_tasks",
+        "app.tasks.screener_tasks",
     ],
 )
 
@@ -52,6 +53,7 @@ celery_app.conf.update(
         "app.tasks.backtest_tasks.run_backtest_task":   {"queue": "backtests"},
         "app.tasks.stock_tasks.sync_stock_master":      {"queue": "admin"},
         "app.tasks.stock_tasks.enrich_fundamentals_batch": {"queue": "admin"},
+        "app.tasks.screener_tasks.sync_screener_fundamentals": {"queue": "admin"},
         "app.tasks.trading_tasks.monitor_paper_trades_task":       {"queue": "default"},
         "app.tasks.trading_tasks.broadcast_position_prices_task":  {"queue": "default"},
     },
@@ -71,6 +73,11 @@ celery_app.conf.update(
             "schedule": crontab(hour=16, minute=5, day_of_week="1-5"),
             "args": ([], "daily"),
             "options": {"queue": "scans"},
+        },
+        "weekly-screener-fundamentals-sync": {
+            "task": "app.tasks.screener_tasks.sync_screener_fundamentals",
+            "schedule": crontab(hour=4, minute=30, day_of_week="0"),  # 04:30 UTC Sunday
+            "options": {"queue": "admin"},
         },
         "weekly-stock-master-sync": {
             "task": "app.tasks.stock_tasks.sync_stock_master",

@@ -20,6 +20,7 @@ import {
   useTriggerScanMutation,
   useStopScanMutation,
   useGetScanStatusQuery,
+  useGetSignalCountsQuery,
   scannerApi,
 } from "@/store/api/scannerApi";
 import { useGetStockStatsQuery } from "@/store/api/stockMasterApi";
@@ -534,6 +535,11 @@ export default function ScannerPage() {
     { skip: isScanning }
   );
 
+  // ── Per-status counts for tab badges (post-scan) ───────────────────────
+  const { data: signalCounts } = useGetSignalCountsQuery(undefined, {
+    skip: isScanning,
+  });
+
   // ── Streaming signals (during scan) ───────────────────────────────────
   const streamingSignals: Signal[] = useMemo(
     () => streamingRaw.map(streamingToSignal),
@@ -557,17 +563,21 @@ export default function ScannerPage() {
 
   // ── Tab counts (for badges) ────────────────────────────────────────────
   // During streaming: count from streaming signals
-  // After scan: shown from API totals (approximated)
+  // After scan: use the dedicated counts endpoint for all tabs
   const tabCount = (tab: FilterTab): number | null => {
-    if (!isScanning && !fetchedData) return null;
     if (isScanning) {
       if (tab === "ALL") return streamingSignals.length;
       return streamingCounts[tab as DisplayStatus] ?? 0;
     }
-    // Post-scan: only current tab count is precise; others shown as "—"
-    if (tab === "ALL") return fetchedData?.total ?? null;
-    if (tab === activeTab) return fetchedData?.total ?? null;
-    return null;
+    if (!signalCounts) return null;
+    switch (tab) {
+      case "ALL":       return signalCounts.total;
+      case "BUY":       return signalCounts.buy_count;
+      case "BREAKOUT":  return signalCounts.breakout_count;
+      case "WATCH":     return signalCounts.watch_count;
+      case "NO_ACTION": return signalCounts.no_action_count;
+      default:          return null;
+    }
   };
 
   return (

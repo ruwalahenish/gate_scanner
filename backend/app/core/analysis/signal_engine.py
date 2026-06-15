@@ -248,6 +248,12 @@ def generate_signal(
     if not rng.get("valid") or not rng.get("range_high") or not rng.get("range_low"):
         return None
 
+    # Require a real GATE formation: tight coil + volume dryup + accumulation.
+    # is_gate = (GATE_TF_WEIGHTS composite >= 55). A stock merely at the top of its
+    # 60-bar range (BUY_ZONE) without actual contraction has no statistical edge.
+    if not bool((sig_analysis.get("gate", {}) or {}).get("is_gate", False)):
+        return None
+
     range_high = float(rng["range_high"])
     range_low = float(rng["range_low"])
     breakout_level = float(rng.get("breakout_level") or range_high * (1 + config.BREAKOUT_TRIGGER_BUFFER_PCT))

@@ -188,13 +188,24 @@ RANK_WEIGHTS = {
 # Score computed over AVAILABLE metrics only (renormalized); sparse data → neutral.
 # -----------------------------------------------------------------------------
 FUNDAMENTAL_WEIGHTS = {
-    "roe":            0.25,
-    "roce":           0.15,
-    "revenue_growth": 0.20,
-    "profit_growth":  0.20,
-    "debt_to_equity": 0.12,
-    "profit_margin":  0.08,
+    # Core profitability
+    "roe":              0.18,
+    "roce_actual":      0.15,   # true ROCE from Screener.in (falls back to yfinance proxy)
+    # Growth — YoY and 3y CAGR weighted equally; both absent → graceful degradation
+    "revenue_growth":   0.10,
+    "revenue_cagr_3y":  0.08,
+    "profit_growth":    0.10,
+    "profit_cagr_3y":   0.08,
+    # Risk & efficiency
+    "debt_to_equity":   0.11,
+    # Margin — opm_latest (Screener.in) and profit_margin (yfinance) may both be present;
+    # renormalization means double-counting is dampened automatically.
+    "profit_margin":    0.05,
+    "opm_latest":       0.07,
+    # Ownership quality (Screener.in shareholding)
+    "promoter_holding": 0.08,
 }
+# Weights sum to 1.00 when all fields present; sparse data auto-renormalizes.
 FUNDAMENTAL_MIN_FIELDS = 2     # need >= this many metrics, else return neutral
 FUNDAMENTAL_NEUTRAL = 50.0     # score when fundamentals are unavailable/sparse
 

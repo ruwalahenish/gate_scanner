@@ -18,7 +18,7 @@ import { CategoryChip } from "@/components/ui/CategoryChip";
 import { StatCard } from "@/components/ui/StatCard";
 import { formatPrice, formatPct, formatRR, formatScore, formatIST, formatCompact } from "@/lib/formatters";
 import { STATUS_COLORS, GATE_COLOR } from "@/lib/constants";
-import { fromLiveAnalysis, fromStockLatest, toChartLevels } from "@/lib/tradeSetup";
+import { fromSignal, fromLiveAnalysis, fromStockLatest, toChartLevels } from "@/lib/tradeSetup";
 import {
   useGetStockQuery,
   useGetStockChartDataQuery,
@@ -30,6 +30,7 @@ import {
   useGetBacktestStatusQuery,
   useCancelBacktestMutation,
 } from "@/store/api/backtestApi";
+import { useGetSignalHistoryQuery } from "@/store/api/signalsApi";
 import { useGetPriceQuery } from "@/store/api/marketApi";
 import type { BacktestTrade } from "@/types/stock";
 
@@ -197,6 +198,9 @@ export default function StockDetailPage() {
 
   const { data: stock } = useGetStockQuery(symbol);
   const { data: priceData } = useGetPriceQuery(symbol, { pollingInterval: 60_000, skipPollingIfUnfocused: true });
+  // Fetch the latest stored signal (limit=1) so the chart gets breakout_level, t2, t3
+  // that aren't available on the stock row's latest_* columns.
+  const { data: signalHistory } = useGetSignalHistoryQuery({ symbol, limit: 1 });
   const { data: chartData, isFetching: chartLoading } = useGetStockChartDataQuery(
     { symbol, timeframe },
     { skip: tab !== 0 },
@@ -298,7 +302,12 @@ export default function StockDetailPage() {
         provenance: (analysisData as any)?.signal?.entry != null ? "confirmed" : "none",
       })
     : null;
-  const storedSetup = stock?.latest_entry != null ? fromStockLatest(stock) : null;
+  // Prefer the full stored signal (breakout_level, t2, t3 included) over the
+  // partial stock-row snapshot (latest_* columns lack breakout_level, t2, t3).
+  const latestStoredSignal = signalHistory?.[0] ?? null;
+  const storedSetup = latestStoredSignal
+    ? fromSignal(latestStoredSignal)
+    : stock?.latest_entry != null ? fromStockLatest(stock) : null;
   const setup = liveSetup ?? storedSetup;
   const chartLevels = toChartLevels(setup);
 

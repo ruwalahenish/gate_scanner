@@ -294,7 +294,7 @@ def phase_bse_fetch_equity(groups: tuple[str, ...] = _BSE_GROUPS) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Phase 3 — yfinance fundamentals enrichment
+# Phase 3 — fundamentals enrichment (Screener.in primary, yfinance fallback)
 # ---------------------------------------------------------------------------
 
 def phase3_enrich_fundamentals(
@@ -303,41 +303,39 @@ def phase3_enrich_fundamentals(
     delay_between_batches: float = 2.0,
 ) -> list[dict]:
     """
-    Fetch yfinance .info for each symbol in the pending list.
+    Enrich fundamentals for each pending symbol.
 
-    yfinance symbol format:
-        NSE → '{symbol}.NS'
-        BSE → symbol already contains '.BO' (convention from nse_universe.py)
+    Primary source: Screener.in (richer data, true ROCE, quarterly trends).
+    Fallback: yfinance .info (used when Screener.in returns empty or fails).
 
-    Fields extracted from ticker.info:
-        sector, industry, marketCap, trailingPE, priceToBook,
-        dividendYield, trailingEps, bookValue,
-        returnOnEquity, returnOnAssets (ROCE proxy), revenueGrowth,
-        earningsGrowth/earningsQuarterlyGrowth, debtToEquity, profitMargins
-
-    Returns list of result dicts, one per input row, with keys:
-        symbol, exchange, sector, industry, market_cap, pe_ratio,
-        pb_ratio, dividend_yield, eps, book_value,
-        roe, roce, revenue_growth, profit_growth, debt_to_equity,
-        profit_margin, success, error
+    Result dict keys (per input row):
+        symbol, exchange, sector, industry, market_cap, pe_ratio, pb_ratio,
+        dividend_yield, eps, book_value, roe, roce, revenue_growth,
+        profit_growth, debt_to_equity, profit_margin,
+        -- Screener extended fields (None when yfinance fallback used) --
+        roce_actual, opm_latest, free_cash_flow, promoter_holding,
+        fii_holding, dii_holding, debtor_days, revenue_cagr_3y, profit_cagr_3y,
+        screener_price, screener_52w_high, screener_52w_low,
+        screener_price_change_pct, data_source,
+        -- meta --
+        success, error
     """
+    from app.core.scanner.universe.screener_fetcher import fetch_company
+
     _empty_fundamentals = {
         "sector": None, "industry": None, "market_cap": None,
         "pe_ratio": None, "pb_ratio": None, "dividend_yield": None,
         "eps": None, "book_value": None,
         "roe": None, "roce": None, "revenue_growth": None,
         "profit_growth": None, "debt_to_equity": None, "profit_margin": None,
+        # Extended Screener fields
+        "roce_actual": None, "opm_latest": None, "free_cash_flow": None,
+        "promoter_holding": None, "fii_holding": None, "dii_holding": None,
+        "debtor_days": None, "revenue_cagr_3y": None, "profit_cagr_3y": None,
+        "screener_price": None, "screener_52w_high": None,
+        "screener_52w_low": None, "screener_price_change_pct": None,
+        "data_source": "yfinance",
     }
-
-    try:
-        import yfinance as yf
-    except ImportError:
-        logger.error("yfinance not installed — cannot enrich fundamentals")
-        return [
-            {**row, **_empty_fundamentals,
-             "success": False, "error": "yfinance not installed"}
-            for row in pending_rows
-        ]
 
     results: list[dict] = []
     total = len(pending_rows)
@@ -346,17 +344,41 @@ def phase3_enrich_fundamentals(
         symbol   = row["symbol"]
         exchange = row.get("exchange", "NSE")
 
-        # Build yfinance ticker symbol
-        if exchange == "BSE" or symbol.endswith(".BO"):
-            yf_sym = symbol if symbol.endswith(".BO") else f"{symbol}.BO"
-        else:
-            yf_sym = f"{symbol}.NS"
-
         result: dict = {
             "symbol": symbol, "exchange": exchange,
             **_empty_fundamentals,
             "success": False, "error": None,
         }
+
+        # ── Primary: Screener.in ─────────────────────────────────────────
+        # Only NSE stocks have a standard Screener.in listing
+        if exchange == "NSE":
+            try:
+                data = fetch_company(symbol)   # rate-limit sleep built-in
+                if data:
+                    result.update(data)
+                    result["data_source"] = "screener"
+                    result["success"] = True
+                    results.append(result)
+                    if (i + 1) % batch_size == 0 and (i + 1) < total:
+                        time.sleep(delay_between_batches)
+                    continue
+            except Exception as exc:
+                logger.debug("screener failed for %s, falling back to yfinance: %s",
+                             symbol, exc)
+
+        # ── Fallback: yfinance ────────────────────────────────────────────
+        try:
+            import yfinance as yf
+        except ImportError:
+            result["error"] = "yfinance not installed and Screener.in failed"
+            results.append(result)
+            continue
+
+        if exchange == "BSE" or symbol.endswith(".BO"):
+            yf_sym = symbol if symbol.endswith(".BO") else f"{symbol}.BO"
+        else:
+            yf_sym = f"{symbol}.NS"
 
         try:
             info = yf.Ticker(yf_sym).info
@@ -380,6 +402,7 @@ def phase3_enrich_fundamentals(
                 ),
                 "debt_to_equity": _safe_float(info.get("debtToEquity")),
                 "profit_margin":  _safe_float(info.get("profitMargins")),
+                "data_source":    "yfinance",
                 "success":        True,
             })
         except Exception as e:
@@ -388,14 +411,16 @@ def phase3_enrich_fundamentals(
 
         results.append(result)
 
-        # Rate-limit: sleep after each batch
+        # Rate-limit between batches (yfinance path)
         if (i + 1) % batch_size == 0 and (i + 1) < total:
             time.sleep(delay_between_batches)
 
     succeeded = sum(1 for r in results if r["success"])
+    screener_count = sum(1 for r in results if r.get("data_source") == "screener")
     logger.info(
-        "Phase 3: enriched %d/%d symbols (failed: %d)",
-        succeeded, total, total - succeeded,
+        "Phase 3: enriched %d/%d symbols (screener=%d yfinance=%d failed=%d)",
+        succeeded, total, screener_count,
+        succeeded - screener_count, total - succeeded,
     )
     return results
 

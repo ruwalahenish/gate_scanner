@@ -98,7 +98,16 @@ class WebSocketManager:
                     except (json.JSONDecodeError, Exception) as e:
                         log.warning("ws_broadcast_error", error=str(e))
         except asyncio.CancelledError:
-            await pubsub.unsubscribe(*CHANNELS)
+            log.info("ws_redis_listener_cancelled")
+        except (ConnectionError, OSError) as e:
+            # Redis connection dropped (e.g. during container shutdown) — expected
+            log.info("ws_redis_listener_disconnected", reason=str(e))
+        finally:
+            try:
+                await pubsub.unsubscribe(*CHANNELS)
+                await pubsub.close()
+            except Exception:
+                pass
             log.info("ws_redis_listener_stopped")
 
 

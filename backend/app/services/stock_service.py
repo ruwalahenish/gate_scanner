@@ -162,6 +162,21 @@ async def enrich_fundamentals_async(
                 r.get("roe"), r.get("roce"),
                 r.get("revenue_growth"), r.get("profit_growth"),
                 r.get("debt_to_equity"), r.get("profit_margin"),
+                # Extended Screener.in fields (None when yfinance fallback used)
+                roce_actual=r.get("roce_actual"),
+                opm_latest=r.get("opm_latest"),
+                free_cash_flow=r.get("free_cash_flow"),
+                promoter_holding=r.get("promoter_holding"),
+                fii_holding=r.get("fii_holding"),
+                dii_holding=r.get("dii_holding"),
+                debtor_days=r.get("debtor_days"),
+                revenue_cagr_3y=r.get("revenue_cagr_3y"),
+                profit_cagr_3y=r.get("profit_cagr_3y"),
+                screener_price=r.get("screener_price"),
+                screener_52w_high=r.get("screener_52w_high"),
+                screener_52w_low=r.get("screener_52w_low"),
+                screener_price_change_pct=r.get("screener_price_change_pct"),
+                data_source=r.get("data_source"),
             )
             succeeded += 1
         else:

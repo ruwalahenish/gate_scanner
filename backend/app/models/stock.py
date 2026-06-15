@@ -40,6 +40,23 @@ class StockResponse(StockSearchResult):
     sync_error: Optional[str] = None
     updated_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
+    data_source: Optional[str] = None
+    # Extended Screener.in fundamentals
+    roce_actual: Optional[float] = None
+    opm_latest: Optional[float] = None
+    free_cash_flow: Optional[int] = None
+    promoter_holding: Optional[float] = None
+    fii_holding: Optional[float] = None
+    dii_holding: Optional[float] = None
+    debtor_days: Optional[float] = None
+    revenue_cagr_3y: Optional[float] = None
+    profit_cagr_3y: Optional[float] = None
+    # Screener.in EOD price (post-market display reference)
+    screener_price: Optional[float] = None
+    screener_52w_high: Optional[float] = None
+    screener_52w_low: Optional[float] = None
+    screener_price_change_pct: Optional[float] = None
+    screener_price_updated_at: Optional[datetime] = None
     # Latest scan signal data (null if stock has never appeared in a scan result)
     latest_category: Optional[str] = None
     latest_rank_score: Optional[float] = None

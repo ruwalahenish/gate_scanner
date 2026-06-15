@@ -227,12 +227,31 @@ const DesktopSignalRow = memo(function DesktopSignalRow({ signal, expanded, onTo
           )}
         </Box>
 
-        <StatusChip category={signal.category} displayCategory={signal.display_category} />
+        <Box>
+          <StatusChip category={signal.category} displayCategory={signal.display_category} />
+          {signal.category === "WATCH" && signal.reasoning && (
+            <Typography
+              variant="caption"
+              color="text.disabled"
+              title={signal.reasoning}
+              noWrap
+              sx={{ display: "block", fontSize: "0.58rem", mt: 0.25, lineHeight: 1.2 }}
+            >
+              {signal.reasoning.split(". ")[0]}
+            </Typography>
+          )}
+        </Box>
         <GATEBar score={signal.gate_strength} />
 
-        <Typography variant="body2" sx={{ fontSize: "0.78rem" }}>
-          {formatPrice(signal.entry)}
-        </Typography>
+        {signal.category === "WATCH" && signal.breakout_level != null ? (
+          <Typography variant="body2" sx={{ fontSize: "0.72rem", color: "#eab308", fontWeight: 600 }}>
+            ▶ {formatPrice(signal.breakout_level)}
+          </Typography>
+        ) : (
+          <Typography variant="body2" sx={{ fontSize: "0.78rem" }}>
+            {formatPrice(signal.entry)}
+          </Typography>
+        )}
         <Typography variant="body2" color="error.light" sx={{ fontSize: "0.78rem" }}>
           {formatPrice(signal.stop_loss)}
         </Typography>
@@ -283,9 +302,15 @@ const MobileSignalRow = memo(function MobileSignalRow({ signal, expanded, onTogg
           <Box sx={{ minWidth: 80, flex: 1 }}>
             <GATEBar score={signal.gate_strength} />
           </Box>
-          <Typography variant="caption" color="text.secondary">
-            {formatPrice(signal.entry)}
-          </Typography>
+          {signal.category === "WATCH" && signal.breakout_level != null ? (
+            <Typography variant="caption" sx={{ color: "#eab308", fontWeight: 600 }}>
+              ▶ {formatPrice(signal.breakout_level)}
+            </Typography>
+          ) : (
+            <Typography variant="caption" color="text.secondary">
+              {formatPrice(signal.entry)}
+            </Typography>
+          )}
           <Typography variant="caption" color="error.light">
             SL: {formatPrice(signal.stop_loss)}
           </Typography>
@@ -293,6 +318,17 @@ const MobileSignalRow = memo(function MobileSignalRow({ signal, expanded, onTogg
             {formatRR(signal.rr_t1)}
           </Typography>
         </Box>
+        {signal.category === "WATCH" && signal.reasoning && (
+          <Typography
+            variant="caption"
+            color="text.disabled"
+            noWrap
+            title={signal.reasoning}
+            sx={{ display: "block", fontSize: "0.6rem", mt: 0.25, lineHeight: 1.2 }}
+          >
+            {signal.reasoning.split(". ")[0]}
+          </Typography>
+        )}
       </Box>
       <Collapse in={expanded} unmountOnExit>
         <SignalDetail signal={signal} />

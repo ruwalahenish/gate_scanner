@@ -144,6 +144,47 @@ async def get_latest_signals_endpoint(
     return result
 
 
+_COUNTS_CACHE_KEY = "signals:counts:latest"
+
+
+@router.get("/latest/signals/counts")
+async def get_latest_signal_counts(
+    conn: asyncpg.Connection = Depends(db_read_conn),
+    redis: aioredis.Redis = Depends(redis_client),
+):
+    """Return per-status counts for the latest completed scan — used by tab badges."""
+    try:
+        cached = await redis.get(_COUNTS_CACHE_KEY)
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+
+    row = await conn.fetchrow(
+        """SELECT
+             COUNT(*)                                                         AS total,
+             COUNT(*) FILTER (WHERE category IN ('INVESTMENT','SWING','POSITIONAL')) AS buy_count,
+             COUNT(*) FILTER (WHERE category = 'BREAKOUT')                   AS breakout_count,
+             COUNT(*) FILTER (WHERE category = 'WATCH')                      AS watch_count,
+             COUNT(*) FILTER (WHERE category = 'IGNORE')                     AS no_action_count
+           FROM signals
+           WHERE scan_id = (SELECT id FROM scans WHERE status='done' ORDER BY triggered_at DESC LIMIT 1)"""
+    )
+    result = {
+        "total": row["total"] if row else 0,
+        "buy_count": row["buy_count"] if row else 0,
+        "breakout_count": row["breakout_count"] if row else 0,
+        "watch_count": row["watch_count"] if row else 0,
+        "no_action_count": row["no_action_count"] if row else 0,
+    }
+    try:
+        await redis.set(_COUNTS_CACHE_KEY, json.dumps(result), ex=get_settings().signals_cache_ttl)
+    except Exception:
+        pass
+
+    return result
+
+
 @router.get("/{scan_id}/signals")
 async def get_scan_signals(
     scan_id: UUID,
