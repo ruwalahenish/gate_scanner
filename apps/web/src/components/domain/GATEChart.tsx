@@ -23,6 +23,8 @@ interface SignalLevels {
   t1?: number | null;
   t2?: number | null;
   t3?: number | null;
+  /** Critical breakout trigger — the level price must clear (drawn as a solid line). */
+  breakout_level?: number | null;
 }
 
 interface GATEChartProps {
@@ -44,6 +46,8 @@ const EMA_CONFIG = [
 // Labeled horizontal price lines drawn directly on the candlestick series.
 // Entry is the most prominent (solid, thick, brand indigo); SL red; targets green.
 const LEVEL_CONFIG = [
+  // Critical breakout trigger — solid, prominent gold line (the level to clear).
+  { key: "breakout_level" as const, color: "#eab308", dash: false, width: 2, label: "Breakout" },
   { key: "entry" as const,     color: "#6366f1", dash: false, width: 3, label: "Entry" },
   { key: "stop_loss" as const, color: "#ef4444", dash: true,  width: 2, label: "SL"    },
   { key: "t1" as const,        color: "#4ade80", dash: true,  width: 1, label: "T1"     },

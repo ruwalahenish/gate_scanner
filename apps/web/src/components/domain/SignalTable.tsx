@@ -106,6 +106,67 @@ const StatusChip = memo(function StatusChip({ category, displayCategory }: {
   );
 });
 
+// Breakout-state badge colors (consolidation-range model)
+const BREAKOUT_STATE_COLORS: Record<string, string> = {
+  BUY_ZONE: "#22c55e",
+  BREAKOUT_CONFIRMED: "#3b82f6",
+  ACCUMULATION: "#eab308",
+  EXTENDED: "#f97316",
+  BROKEN_DOWN: "#ef4444",
+  NO_GATE: "#64748b",
+};
+
+const fmtScore = (v: number | null | undefined) =>
+  v == null ? "—" : Math.round(v).toString();
+
+// Compact strip of the strategy-rework context metrics shown above the setup.
+const GateContextStrip = memo(function GateContextStrip({ signal }: { signal: Signal }) {
+  const {
+    breakout_state, rs_score, sector_momentum, fundamental_score, accumulation_score,
+    range_low, range_high, breakout_level, category, reasoning,
+  } = signal;
+  const hasContext =
+    breakout_state != null || rs_score != null || sector_momentum != null ||
+    fundamental_score != null || accumulation_score != null;
+  if (!hasContext) return null;
+
+  const stateColor = BREAKOUT_STATE_COLORS[breakout_state ?? "NO_GATE"] ?? "#64748b";
+  const isWatch = category === "WATCH";
+  return (
+    <Box mb={1.25}>
+      <Box display="flex" gap={1} alignItems="center" flexWrap="wrap">
+        {breakout_state && (
+          <Chip
+            label={breakout_state.replace(/_/g, " ")}
+            size="small"
+            sx={{ bgcolor: `${stateColor}1a`, color: stateColor, border: `1px solid ${stateColor}40`,
+                  fontWeight: 700, fontSize: "0.62rem", height: 20 }}
+          />
+        )}
+        {breakout_level != null && (
+          <Typography variant="caption" sx={{ fontSize: "0.62rem", color: "#eab308", fontWeight: 600 }}>
+            Critical: {formatPrice(breakout_level)}
+          </Typography>
+        )}
+        {range_low != null && range_high != null && (
+          <Typography variant="caption" color="text.disabled" sx={{ fontSize: "0.62rem" }}>
+            Box {formatPrice(range_low)}–{formatPrice(range_high)}
+          </Typography>
+        )}
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.62rem" }}>
+          RS {fmtScore(rs_score)} · Sector {fmtScore(sector_momentum)} ·
+          Fund {fmtScore(fundamental_score)} · Accum {fmtScore(accumulation_score)}
+        </Typography>
+      </Box>
+      {isWatch && reasoning && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, fontSize: "0.66rem", fontStyle: "italic" }}>
+          {reasoning}
+        </Typography>
+      )}
+    </Box>
+  );
+});
+
 // Expanded row detail — routes to the shared TradeSetupPanel. BUY/levelled
 // signals render their stored setup instantly; WATCH signals (no stored levels)
 // get an on-demand "Load trade setup" loader that runs the live GATE engine.
@@ -113,6 +174,7 @@ const SignalDetail = memo(function SignalDetail({ signal }: { signal: Signal }) 
   const hasLevels = signal.entry != null;
   return (
     <Box sx={SIGNAL_DETAIL_SX}>
+      <GateContextStrip signal={signal} />
       {hasLevels ? (
         <TradeSetupPanel setup={fromSignal(signal)} variant="full" headerTitle="Trade Setup" />
       ) : (

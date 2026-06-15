@@ -9,7 +9,7 @@ class SignalModel(BaseModel):
     symbol: str
     category: str
     # User-facing labels (populated by router layer, not stored in DB)
-    display_status: Optional[Literal["BUY", "WATCH", "NO_ACTION"]] = None
+    display_status: Optional[Literal["BUY", "BREAKOUT", "WATCH", "NO_ACTION"]] = None
     display_category: Optional[str] = None  # "Long-Term Buy", "Swing Buy", etc.
     side: Optional[str] = None
     signal_timeframe: Optional[str] = None
@@ -39,6 +39,17 @@ class SignalModel(BaseModel):
     phase: Optional[str] = None
     trailing_plan: Optional[dict] = None
     reasoning: Optional[str] = None
+    # ---- strategy-rework fields (migration 008) ----
+    breakout_state: Optional[str] = None
+    range_high: Optional[float] = None
+    range_low: Optional[float] = None
+    breakout_level: Optional[float] = None
+    measured_move: Optional[float] = None
+    rs_score: Optional[float] = None
+    sector_momentum: Optional[float] = None
+    accumulation_score: Optional[float] = None
+    fundamental_score: Optional[float] = None
+    volume_buildup: Optional[bool] = None
     created_at: datetime
 
 

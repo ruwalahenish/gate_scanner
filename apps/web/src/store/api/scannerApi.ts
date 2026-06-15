@@ -4,7 +4,7 @@ import type { SignalListResponse } from "@/types/signal";
 import type { ScanResult } from "@/types/scan";
 
 export interface ScanFilters {
-  status?: "BUY" | "WATCH" | "NO_ACTION";
+  status?: "BUY" | "BREAKOUT" | "WATCH" | "NO_ACTION";
   min_rank?: number;
   min_gate?: number;
   side?: string;

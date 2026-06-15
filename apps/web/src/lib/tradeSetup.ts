@@ -27,6 +27,11 @@ export interface TradeSetup {
   stopLoss: number | null;
   targets: { t1: number | null; t2: number | null; t3: number | null };
   rr: { t1: number | null; t2: number | null; t3: number | null };
+  /** Critical breakout trigger and consolidation box bounds. */
+  breakoutLevel: number | null;
+  rangeHigh: number | null;
+  rangeLow: number | null;
+  breakoutState: string | null;
   slDistancePct: number | null;
   atr: number | null;
   gateStrength: number | null;
@@ -87,6 +92,10 @@ export function fromSignal(
     stopLoss: num(s.stop_loss),
     targets: { t1: num(s.t1), t2: num(s.t2), t3: num(s.t3) },
     rr: { t1: num(s.rr_t1), t2: num(s.rr_t2), t3: num(s.rr_t3) },
+    breakoutLevel: num(s.breakout_level),
+    rangeHigh: num(s.range_high),
+    rangeLow: num(s.range_low),
+    breakoutState: s.breakout_state ?? null,
     slDistancePct: num(s.sl_distance_pct),
     atr: num(s.atr),
     gateStrength: num(s.gate_strength),
@@ -141,6 +150,10 @@ export function fromLiveAnalysis(
       stopLoss: null,
       targets: { t1: null, t2: null, t3: null },
       rr: { t1: null, t2: null, t3: null },
+      breakoutLevel: null,
+      rangeHigh: null,
+      rangeLow: null,
+      breakoutState: null,
       slDistancePct: null,
       atr: null,
       gateStrength: summaryGate,
@@ -171,6 +184,10 @@ export function fromLiveAnalysis(
     stopLoss: num(sig.stop_loss),
     targets: { t1: num(sig.T1), t2: num(sig.T2), t3: num(sig.T3) },
     rr: { t1: num(sig.rr?.T1), t2: num(sig.rr?.T2), t3: num(sig.rr?.T3) },
+    breakoutLevel: num(sig.breakout_level),
+    rangeHigh: num(sig.range_high),
+    rangeLow: num(sig.range_low),
+    breakoutState: str(sig.breakout_state),
     slDistancePct: num(sig.sl_distance_pct),
     atr: num(sig.atr),
     gateStrength: num(sig.gate_strength) ?? summaryGate,
@@ -209,6 +226,10 @@ export function fromWatchlistItem(item: WatchlistItem): TradeSetup {
     stopLoss: num(item.stop_loss),
     targets: { t1: num(item.t1), t2: null, t3: null },
     rr: { t1: null, t2: null, t3: null },
+    breakoutLevel: null,
+    rangeHigh: null,
+    rangeLow: null,
+    breakoutState: null,
     slDistancePct: null,
     atr: null,
     gateStrength: num(item.gate_strength),
@@ -241,6 +262,10 @@ export function fromStockLatest(stock: Stock): TradeSetup {
     stopLoss: num(stock.latest_stop_loss),
     targets: { t1: num(stock.latest_t1), t2: null, t3: null },
     rr: { t1: num(stock.latest_rr_t1), t2: null, t3: null },
+    breakoutLevel: null,
+    rangeHigh: null,
+    rangeLow: null,
+    breakoutState: null,
     slDistancePct: null,
     atr: null,
     gateStrength: num(stock.latest_gate_strength),
@@ -270,6 +295,7 @@ export function toChartLevels(ts: TradeSetup | null | undefined): {
   t1?: number | null;
   t2?: number | null;
   t3?: number | null;
+  breakout_level?: number | null;
 } | null {
   if (!ts) return null;
   return {
@@ -278,5 +304,6 @@ export function toChartLevels(ts: TradeSetup | null | undefined): {
     t1: ts.targets.t1,
     t2: ts.targets.t2,
     t3: ts.targets.t3,
+    breakout_level: ts.breakoutLevel,
   };
 }

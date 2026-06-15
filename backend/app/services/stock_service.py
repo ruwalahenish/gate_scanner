@@ -159,6 +159,9 @@ async def enrich_fundamentals_async(
                 r.get("market_cap"),
                 r.get("pe_ratio"), r.get("pb_ratio"),
                 r.get("dividend_yield"), r.get("eps"), r.get("book_value"),
+                r.get("roe"), r.get("roce"),
+                r.get("revenue_growth"), r.get("profit_growth"),
+                r.get("debt_to_equity"), r.get("profit_margin"),
             )
             succeeded += 1
         else:

@@ -55,11 +55,12 @@ const SCAN_MODE = "full";
 // than expected" hint. We never auto-cancel — a full master scan can be slow.
 const SLOW_SCAN_THRESHOLD_SEC = 8 * 60;
 
-type FilterTab = "ALL" | "BUY" | "WATCH" | "NO_ACTION";
+type FilterTab = "ALL" | "BUY" | "BREAKOUT" | "WATCH" | "NO_ACTION";
 
 const TABS: { value: FilterTab; label: string; color: string }[] = [
   { value: "ALL",       label: "All",              color: "#94a3b8"                   },
   { value: "BUY",       label: "BUY Opportunity",  color: STATUS_COLORS.INVESTMENT    },
+  { value: "BREAKOUT",  label: "Broken Out",       color: STATUS_COLORS.BREAKOUT      },
   { value: "WATCH",     label: "Watch",            color: STATUS_COLORS.WATCH         },
   { value: "NO_ACTION", label: "No Action",        color: STATUS_COLORS.IGNORE        },
 ];
@@ -125,6 +126,16 @@ function streamingToSignal(s: StreamingSignal, idx: number): Signal {
     phase:                  null,
     trailing_plan:          null,
     reasoning:              null,
+    breakout_state:         null,
+    range_high:             null,
+    range_low:              null,
+    breakout_level:         null,
+    measured_move:          null,
+    rs_score:               null,
+    sector_momentum:        null,
+    accumulation_score:     null,
+    fundamental_score:      null,
+    volume_buildup:         null,
     created_at:             new Date().toISOString(),
   };
 }
@@ -145,7 +156,7 @@ function countByStatus(signals: Signal[]): Record<DisplayStatus, number> {
       acc[k] = (acc[k] ?? 0) + 1;
       return acc;
     },
-    { BUY: 0, WATCH: 0, NO_ACTION: 0 } as Record<DisplayStatus, number>
+    { BUY: 0, BREAKOUT: 0, WATCH: 0, NO_ACTION: 0 } as Record<DisplayStatus, number>
   );
 }
 

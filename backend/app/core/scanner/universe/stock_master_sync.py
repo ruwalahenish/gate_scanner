@@ -311,21 +311,31 @@ def phase3_enrich_fundamentals(
 
     Fields extracted from ticker.info:
         sector, industry, marketCap, trailingPE, priceToBook,
-        dividendYield, trailingEps, bookValue
+        dividendYield, trailingEps, bookValue,
+        returnOnEquity, returnOnAssets (ROCE proxy), revenueGrowth,
+        earningsGrowth/earningsQuarterlyGrowth, debtToEquity, profitMargins
 
     Returns list of result dicts, one per input row, with keys:
         symbol, exchange, sector, industry, market_cap, pe_ratio,
-        pb_ratio, dividend_yield, eps, book_value, success, error
+        pb_ratio, dividend_yield, eps, book_value,
+        roe, roce, revenue_growth, profit_growth, debt_to_equity,
+        profit_margin, success, error
     """
+    _empty_fundamentals = {
+        "sector": None, "industry": None, "market_cap": None,
+        "pe_ratio": None, "pb_ratio": None, "dividend_yield": None,
+        "eps": None, "book_value": None,
+        "roe": None, "roce": None, "revenue_growth": None,
+        "profit_growth": None, "debt_to_equity": None, "profit_margin": None,
+    }
+
     try:
         import yfinance as yf
     except ImportError:
         logger.error("yfinance not installed — cannot enrich fundamentals")
         return [
-            {**row, "success": False, "error": "yfinance not installed",
-             "sector": None, "industry": None, "market_cap": None,
-             "pe_ratio": None, "pb_ratio": None, "dividend_yield": None,
-             "eps": None, "book_value": None}
+            {**row, **_empty_fundamentals,
+             "success": False, "error": "yfinance not installed"}
             for row in pending_rows
         ]
 
@@ -344,14 +354,13 @@ def phase3_enrich_fundamentals(
 
         result: dict = {
             "symbol": symbol, "exchange": exchange,
-            "sector": None, "industry": None, "market_cap": None,
-            "pe_ratio": None, "pb_ratio": None, "dividend_yield": None,
-            "eps": None, "book_value": None,
+            **_empty_fundamentals,
             "success": False, "error": None,
         }
 
         try:
             info = yf.Ticker(yf_sym).info
+            # ROCE is not exposed by yfinance — approximate with returnOnAssets.
             result.update({
                 "sector":         info.get("sector"),
                 "industry":       info.get("industry"),
@@ -361,6 +370,16 @@ def phase3_enrich_fundamentals(
                 "dividend_yield": _safe_float(info.get("dividendYield")),
                 "eps":            _safe_float(info.get("trailingEps")),
                 "book_value":     _safe_float(info.get("bookValue")),
+                "roe":            _safe_float(info.get("returnOnEquity")),
+                "roce":           _safe_float(info.get("returnOnAssets")),
+                "revenue_growth": _safe_float(info.get("revenueGrowth")),
+                "profit_growth":  _safe_float(
+                    info.get("earningsGrowth")
+                    if info.get("earningsGrowth") is not None
+                    else info.get("earningsQuarterlyGrowth")
+                ),
+                "debt_to_equity": _safe_float(info.get("debtToEquity")),
+                "profit_margin":  _safe_float(info.get("profitMargins")),
                 "success":        True,
             })
         except Exception as e:

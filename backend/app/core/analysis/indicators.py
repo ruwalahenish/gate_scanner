@@ -162,6 +162,23 @@ def last_swing_levels(df: pd.DataFrame, left: int = 3, right: int = 3) -> dict:
 
 
 # -----------------------------------------------------------------------------
+# Volume-flow indicators (smart-money / accumulation proxies)
+# -----------------------------------------------------------------------------
+def obv(df: pd.DataFrame) -> pd.Series:
+    """On-Balance Volume — cumulative volume signed by close-to-close direction."""
+    direction = np.sign(df["Close"].diff().fillna(0.0))
+    return (direction * df["Volume"].fillna(0.0)).cumsum()
+
+
+def acc_dist(df: pd.DataFrame) -> pd.Series:
+    """Accumulation/Distribution line — volume weighted by close location in range."""
+    rng = (df["High"] - df["Low"]).replace(0, np.nan)
+    clv = ((df["Close"] - df["Low"]) - (df["High"] - df["Close"])) / rng
+    clv = clv.fillna(0.0)
+    return (clv * df["Volume"].fillna(0.0)).cumsum()
+
+
+# -----------------------------------------------------------------------------
 # Percentile helper
 # -----------------------------------------------------------------------------
 def rolling_percentile(series: pd.Series, window: int) -> pd.Series:

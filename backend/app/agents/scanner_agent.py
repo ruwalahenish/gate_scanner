@@ -10,6 +10,7 @@ Responsibilities:
 from __future__ import annotations
 
 import concurrent.futures as cf
+from collections import Counter
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -39,6 +40,13 @@ class MarketScannerAgent(BaseAgent):
         self.max_workers = max_workers
         self.min_price  = min_price
         self.min_volume = min_volume
+        # Populated by scan(): {reason_code: count} for symbols that did NOT
+        # pass the liquidity/price prefilter. Reason codes:
+        #   "no_data"     — yfinance returned empty / < 20 daily bars
+        #   "penny"       — last close < min_price
+        #   "illiquid"    — 20-bar avg volume < min_volume
+        #   "fetch_error" — exception while fetching/parsing
+        self.skip_reasons: Counter = Counter()
 
     # -------------------------------------------------------------------------
     # Liquidity / price filter (run on daily TF after fetch)
@@ -60,8 +68,14 @@ class MarketScannerAgent(BaseAgent):
     # Parallel fetch over universe
     # -------------------------------------------------------------------------
     def scan(self) -> Dict[str, Dict[str, pd.DataFrame]]:
-        """Returns { symbol: { tf: DataFrame } } after liquidity filter."""
+        """Returns { symbol: { tf: DataFrame } } after liquidity filter.
+
+        Side effect: populates self.skip_reasons (Counter of reason_code -> count)
+        for every symbol that did not pass the prefilter, so callers can report a
+        breakdown of *why* the scanned universe shrank.
+        """
         out: Dict[str, Dict[str, pd.DataFrame]] = {}
+        self.skip_reasons = Counter()
         total = len(self.universe)
 
         print(f"\n  Fetching data for {total} symbols...\n")
@@ -71,24 +85,26 @@ class MarketScannerAgent(BaseAgent):
                 mtf = self.fetch_symbol(sym)
                 daily = mtf.get("1d")
                 if daily is None or daily.empty or len(daily) < 20:
-                    return sym, None, "insufficient data"
+                    return sym, None, "no_data", "insufficient data"
                 last_close = float(daily["Close"].iloc[-1])
                 avg_vol = float(daily["Volume"].iloc[-20:].mean())
                 if last_close < self.min_price:
-                    return sym, None, f"price ₹{last_close:.0f} < min ₹{self.min_price:.0f}"
+                    return sym, None, "penny", f"price ₹{last_close:.0f} < min ₹{self.min_price:.0f}"
                 if avg_vol < self.min_volume:
-                    return sym, None, f"avg vol {avg_vol/1e5:.1f}L < min {self.min_volume/1e5:.0f}L"
-                return sym, mtf, f"close=₹{last_close:.2f}  avg_vol={avg_vol/1e5:.1f}L"
+                    return sym, None, "illiquid", f"avg vol {avg_vol/1e5:.1f}L < min {self.min_volume/1e5:.0f}L"
+                return sym, mtf, None, f"close=₹{last_close:.2f}  avg_vol={avg_vol/1e5:.1f}L"
             except Exception as e:
                 self._log.warning("scan failed for %s: %s", sym, e)
-                return sym, None, f"fetch error: {e}"
+                return sym, None, "fetch_error", f"fetch error: {e}"
 
         with cf.ThreadPoolExecutor(max_workers=self.max_workers) as pool:
             futures = {pool.submit(_work, sym): sym for sym in self.universe}
             for idx, fut in enumerate(cf.as_completed(futures), 1):
-                sym, mtf, detail = fut.result()
+                sym, mtf, reason_code, detail = fut.result()
                 status = "PASS" if mtf is not None else "SKIP"
                 print(f"  [Fetch {idx:3d}/{total}] {sym:<22}  {status:<4}  {detail}")
                 if mtf is not None:
                     out[sym] = mtf
+                else:
+                    self.skip_reasons[reason_code] += 1
         return out

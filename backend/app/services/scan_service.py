@@ -24,10 +24,31 @@ _settings = get_settings()
 _executor = ThreadPoolExecutor(max_workers=_settings.scan_executor_workers)
 
 
-def _run_scan_sync(universe: list[str], mode: str, on_batch_sync=None) -> list[dict]:
+def _run_scan_sync(
+    universe: list[str], mode: str, on_batch_sync=None,
+    fundamentals_map: dict | None = None,
+) -> list[dict]:
     """Run the 5-stage GATE pipeline synchronously (called in thread pool)."""
     from app.core.scanner.pipeline import run_scan
-    return run_scan(universe=universe if universe else None, on_batch=on_batch_sync)
+    return run_scan(
+        universe=universe if universe else None,
+        on_batch=on_batch_sync,
+        fundamentals_map=fundamentals_map,
+    )
+
+
+async def _load_fundamentals_map() -> dict:
+    """Load {symbol: fundamentals} once per scan for the ranking stage."""
+    try:
+        from app.db import get_pool
+        from app.queries.stock_master import get_fundamentals_map
+        pool = get_pool()
+        if pool is None:
+            return {}
+        async with pool.acquire() as conn:
+            return await get_fundamentals_map(conn)
+    except Exception:
+        return {}
 
 
 async def _resolve_universe_from_db(mode: str) -> list[str]:
@@ -95,6 +116,9 @@ async def run_scan_async(
     if not universe:
         universe = await loop.run_in_executor(_executor, _fetch_full_equity_master)
 
+    # Load fundamentals once (async, before entering the thread pool).
+    fundamentals_map = await _load_fundamentals_map()
+
     # Build a sync callback that bridges the thread-pool back to the event loop
     sync_cb = None
     if on_batch is not None:
@@ -105,7 +129,10 @@ async def run_scan_async(
             except Exception:
                 pass  # never let a callback error abort the pipeline
 
-    fn = functools.partial(_run_scan_sync, universe, mode, on_batch_sync=sync_cb)
+    fn = functools.partial(
+        _run_scan_sync, universe, mode,
+        on_batch_sync=sync_cb, fundamentals_map=fundamentals_map,
+    )
     return await loop.run_in_executor(_executor, fn)
 
 

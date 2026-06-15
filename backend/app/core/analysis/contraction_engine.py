@@ -30,6 +30,8 @@ import pandas as pd
 from app.core import config
 from app.core.analysis import indicators as ind
 from app.core.analysis import ema_engine
+from app.core.analysis import range_engine
+from app.core.analysis import accumulation as accum
 
 
 # -----------------------------------------------------------------------------
@@ -124,36 +126,62 @@ def _adx_contraction_score(df: pd.DataFrame) -> float:
 
 
 # -----------------------------------------------------------------------------
-# Composite GATE
+# Consolidation strength (the old 6-component contraction composite, 0–100)
 # -----------------------------------------------------------------------------
-def gate_score(df: pd.DataFrame) -> Dict:
-    """
-    Returns:
-      {
-        "score": float [0, 100],
-        "components": {...},
-        "is_gate": bool,
-        "direction_bias": "bullish" | "bearish" | "neutral",
-      }
-    """
-    if df is None or df.empty or len(df) < 210:
-        return {
-            "score": 0.0,
-            "components": {},
-            "is_gate": False,
-            "direction_bias": "neutral",
-        }
-
+def consolidation_strength(df: pd.DataFrame) -> Dict:
+    """Weighted blend of the contraction sub-signals → {score 0–100, components}."""
     components = {
         "bb_squeeze":      _bb_squeeze_score(df),
         "atr_contraction": _atr_contraction_score(df),
         "ema_compression": _ema_compression_score(df),
         "narrow_range":    _narrow_range_score(df),
         "volume_contract": _volume_contraction_score(df),
-        "adx_contraction": _adx_contraction_score(df),  # C-2 fix
+        "adx_contraction": _adx_contraction_score(df),
     }
-    weighted = sum(components[k] * config.GATE_WEIGHTS[k] for k in components)
-    score = weighted * 100
+    weighted = sum(components[k] * config.CONTRACTION_WEIGHTS[k] for k in components)
+    return {"score": float(weighted * 100), "components": {k: float(v) for k, v in components.items()}}
+
+
+# -----------------------------------------------------------------------------
+# Composite per-TF GATE  (technical gate: tightness + breakout proximity +
+# volume pattern + accumulation — see GATE_TF_WEIGHTS)
+# -----------------------------------------------------------------------------
+def gate_score(df: pd.DataFrame) -> Dict:
+    """
+    Returns the per-timeframe technical GATE score:
+      {
+        "score": float [0, 100],            # the GATE_TF_WEIGHTS composite
+        "components": {...},                 # contraction sub-signals + 4 TF components
+        "consolidation_strength": float,
+        "is_gate": bool,
+        "direction_bias": "bullish" | "bearish" | "neutral",
+        "range": {...},                      # box + breakout state (range_engine)
+        "volume_buildup": bool,
+      }
+    """
+    if df is None or df.empty or len(df) < 210:
+        return {
+            "score": 0.0,
+            "components": {},
+            "consolidation_strength": 0.0,
+            "is_gate": False,
+            "direction_bias": "neutral",
+            "range": range_engine.analyze_range(df) if df is not None else {},
+            "volume_buildup": False,
+        }
+
+    contraction = consolidation_strength(df)
+    rng = range_engine.analyze_range(df)
+    vol_pattern_score, buildup = accum.volume_pattern(df)
+    accumulation_v = accum.accumulation_score(df)
+
+    tf_components = {
+        "consolidation_strength": contraction["score"],
+        "breakout_proximity":     rng.get("proximity_score", 0.0),
+        "volume_pattern":         vol_pattern_score,
+        "accumulation":           accumulation_v,
+    }
+    score = sum(tf_components[k] * config.GATE_TF_WEIGHTS[k] for k in tf_components)
 
     # Directional bias
     stack = ema_engine.stack_state(df)
@@ -172,9 +200,12 @@ def gate_score(df: pd.DataFrame) -> Dict:
 
     return {
         "score": float(score),
-        "components": {k: float(v) for k, v in components.items()},
+        "components": {**contraction["components"], **tf_components},
+        "consolidation_strength": contraction["score"],
         "is_gate": score >= 55.0,
         "direction_bias": bias,
+        "range": rng,
+        "volume_buildup": bool(buildup),
     }
 
 

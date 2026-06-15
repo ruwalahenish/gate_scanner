@@ -41,7 +41,7 @@ def build_scan_report(
 # HTML assembly
 # ---------------------------------------------------------------------------
 
-_CATEGORY_ORDER = ["INVESTMENT", "SWING", "POSITIONAL", "WATCH", "IGNORE"]
+_CATEGORY_ORDER = ["INVESTMENT", "SWING", "POSITIONAL", "BREAKOUT", "WATCH", "IGNORE"]
 
 _CAT_COLORS = {
     "INVESTMENT": {"bg": "#d4af37", "text": "#1a1a2e", "badge": "#f5c518"},

@@ -54,20 +54,49 @@ def _best_gate(per_tf: Dict) -> float:
     return max(scores) if scores else 0.0
 
 
+def _base_symbol(symbol: str) -> str:
+    """Strip the BSE '.BO' suffix so stock_master / SECTOR_MAP lookups match."""
+    return symbol[:-3] if symbol.endswith(".BO") else symbol
+
+
 def _analyze_one(
     symbol: str,
     mtf_data: dict,
     mtf_agent: MTFAnalysisAgent,
     risk_agent: RiskManagementAgent,
+    index_df=None,
+    sector_momentum_map: Optional[Dict[str, float]] = None,
+    fundamentals_map: Optional[Dict[str, dict]] = None,
 ) -> dict | None:
     """Analyze a single symbol through MTF + Risk stages. Returns enriched dict or None on error."""
+    from app.core.analysis import relative_strength, fundamentals as fundamentals_mod
+    from app.core.scanner.universe.nse_universe import SECTOR_MAP
+
     try:
         mtf_result = mtf_agent.analyze(mtf_data, symbol=symbol)
+
+        base = _base_symbol(symbol)
+        daily_df = mtf_data.get(config.SCAN_TIMEFRAME)
+        rs = (
+            relative_strength.rs_score(daily_df, index_df)
+            if daily_df is not None and not daily_df.empty
+            else config.RS_NEUTRAL
+        )
+        sector_mom = (sector_momentum_map or {}).get(
+            SECTOR_MAP.get(base), config.SECTOR_NEUTRAL
+        )
+        fund = fundamentals_mod.fundamental_score(
+            (fundamentals_map or {}).get(base)
+        )
+
         signal = risk_agent.build_signal(
             symbol,
             mtf_data,
             mtf_result["per_tf"],
             mtf_result["summary"],
+            rs_score=rs,
+            sector_momentum=sector_mom,
+            fundamental_score=fund,
         )
         return {
             "symbol":      symbol,
@@ -90,6 +119,7 @@ def run_scan(
     all_equity: bool = False,
     on_batch: Optional[Callable[[list, int, int], None]] = None,
     batch_size: int = _BATCH_SIZE,
+    fundamentals_map: Optional[Dict[str, dict]] = None,
 ) -> List[Dict]:
     """
     Top-level scan entry point. Returns the full results list.
@@ -129,6 +159,33 @@ def run_scan(
     universe_data = scanner.scan()
     logger.info("  -> %d symbols passed liquidity filter", len(universe_data))
 
+    # Breakdown of why symbols were dropped at the prefilter stage, e.g.
+    #   "820 no_data, 110 penny, 54 illiquid, 0 fetch_error"
+    skipped = len(scanner.universe) - len(universe_data)
+    if skipped > 0:
+        breakdown = ", ".join(
+            f"{cnt} {code}"
+            for code, cnt in scanner.skip_reasons.most_common()
+        )
+        logger.info("  -> %d symbols skipped (%s)", skipped, breakdown)
+        print(f"  -> {skipped} symbols skipped ({breakdown})")
+
+    # ---- Scan-wide context: index (RS baseline) + sector momentum, computed once ----
+    from app.core.scanner import data_fetcher
+    from app.core.analysis import sector_engine
+
+    try:
+        index_df = data_fetcher.get_ohlcv(config.INDEX_SYMBOL, interval=config.SCAN_TIMEFRAME)
+    except Exception as e:
+        logger.warning("index fetch failed for %s: %s — RS will be neutral", config.INDEX_SYMBOL, e)
+        index_df = None
+    try:
+        sector_momentum_map = sector_engine.compute_sector_momentum()
+    except Exception as e:
+        logger.warning("sector momentum computation failed: %s — sectors will be neutral", e)
+        sector_momentum_map = {}
+    fundamentals_map = fundamentals_map or {}
+
     # ---- 2+3) MTF Analysis + Risk: parallel within batches ----
     mtf_agent  = MTFAnalysisAgent()
     risk_agent = RiskManagementAgent()
@@ -148,7 +205,10 @@ def run_scan(
 
         with ThreadPoolExecutor(max_workers=min(workers, len(batch))) as pool:
             future_to_sym = {
-                pool.submit(_analyze_one, sym, data, mtf_agent, risk_agent): sym
+                pool.submit(
+                    _analyze_one, sym, data, mtf_agent, risk_agent,
+                    index_df, sector_momentum_map, fundamentals_map,
+                ): sym
                 for sym, data in batch
             }
             for future in as_completed(future_to_sym):

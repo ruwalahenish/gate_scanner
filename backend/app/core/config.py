@@ -135,38 +135,117 @@ ADX_CONTRACTION_WEAK = 15   # ADX <= 15 → score = 1.0 (maximum contraction sig
 ADX_CONTRACTION_STRONG = 35  # ADX >= 35 → score = 0.0 (no contraction signal)
 
 # -----------------------------------------------------------------------------
-# GATE SCORE WEIGHTS (must sum to 1.0)
+# CONTRACTION SUB-SCORE WEIGHTS (must sum to 1.0)
+# Feeds the "consolidation_strength" component of the per-TF GATE score.
 # (C-2 fix: added adx_contraction; weights redistributed proportionally)
 # -----------------------------------------------------------------------------
-GATE_WEIGHTS = {
+CONTRACTION_WEIGHTS = {
     "bb_squeeze":      0.22,
     "atr_contraction": 0.18,
     "ema_compression": 0.22,
     "narrow_range":    0.13,
     "volume_contract": 0.13,
-    "adx_contraction": 0.12,   # new: low ADX confirms the contraction phase
+    "adx_contraction": 0.12,   # low ADX confirms the contraction phase
 }
 
 # -----------------------------------------------------------------------------
-# COMPOSITE SCORE WEIGHTS for ranking
+# PER-TIMEFRAME GATE SCORE WEIGHTS (technical gate; must sum to 1.0)
+# The per-TF gate blends consolidation tightness with where price sits vs its
+# breakout zone and whether volume/accumulation supports an upcoming move.
+# -----------------------------------------------------------------------------
+GATE_TF_WEIGHTS = {
+    "consolidation_strength": 0.40,   # the CONTRACTION_WEIGHTS composite
+    "breakout_proximity":     0.25,   # closeness to range_high (peaks in BUY_ZONE)
+    "volume_pattern":         0.20,   # dry-up during base + buildup near top
+    "accumulation":           0.15,   # OBV / A-D smart-money proxy
+}
+
+# -----------------------------------------------------------------------------
+# SIGNAL-LEVEL GATE COMPOSITE WEIGHTS (final gate_strength; must sum to 1.0)
+# Combines the signal-TF technical gate with cross-cutting context.
+# -----------------------------------------------------------------------------
+GATE_WEIGHTS = {
+    "technical_gate":    0.50,   # per-TF gate on the signal timeframe
+    "trend_alignment":   0.18,   # MTF agreement (bigger picture bullish)
+    "relative_strength": 0.18,   # vs Nifty
+    "sector_momentum":   0.14,   # sector strength
+}
+
+# -----------------------------------------------------------------------------
+# COMPOSITE SCORE WEIGHTS for ranking (must sum to 1.0)
 # -----------------------------------------------------------------------------
 RANK_WEIGHTS = {
-    "gate_strength":       0.30,
-    "mtf_alignment":       0.25,
-    "structure_quality":   0.20,
-    "breakout_probability":0.15,
-    "rr_ratio":            0.10,
+    "gate_strength":       0.34,   # the GATE_WEIGHTS composite
+    "breakout_readiness":  0.16,   # how primed the breakout is (state + proximity)
+    "rr_ratio":            0.12,   # structural risk-reward
+    "relative_strength":   0.12,
+    "sector_momentum":     0.08,
+    "fundamental_score":   0.18,   # fundamental quality
 }
+
+# -----------------------------------------------------------------------------
+# FUNDAMENTAL QUALITY SCORE  (must sum to 1.0)
+# Score computed over AVAILABLE metrics only (renormalized); sparse data → neutral.
+# -----------------------------------------------------------------------------
+FUNDAMENTAL_WEIGHTS = {
+    "roe":            0.25,
+    "roce":           0.15,
+    "revenue_growth": 0.20,
+    "profit_growth":  0.20,
+    "debt_to_equity": 0.12,
+    "profit_margin":  0.08,
+}
+FUNDAMENTAL_MIN_FIELDS = 2     # need >= this many metrics, else return neutral
+FUNDAMENTAL_NEUTRAL = 50.0     # score when fundamentals are unavailable/sparse
+
+# -----------------------------------------------------------------------------
+# CONSOLIDATION-RANGE / BREAKOUT-STATE MODEL  (strategy rework)
+# The "gate" is the consolidation box; a buy opportunity exists only when price
+# is APPROACHING the breakout (BUY_ZONE) or has JUST broken out — never extended.
+# -----------------------------------------------------------------------------
+RANGE_LOOKBACK         = 60      # bars on the signal TF used to detect the box
+RANGE_MIN_DURATION     = 12      # box must persist >= this many bars to be valid
+RANGE_MAX_HEIGHT_PCT   = 0.25    # box height (high-low)/low must be <= 25% (a base, not a trend leg)
+RANGE_TIGHTNESS_ATR_MULT = 2.5   # recent ATR <= box_height/this → tight coil
+
+# Breakout proximity bands (distance of close vs range_high, as a fraction)
+BUY_ZONE_MAX_PCT          = 0.04   # close within 4% BELOW range_high → BUY_ZONE (coiling)
+BREAKOUT_CONFIRM_MAX_PCT  = 0.03   # close 0–3% ABOVE range_high → fresh BREAKOUT_CONFIRMED
+EXTENDED_PCT              = 0.03    # close > 3% above range_high → EXTENDED (already moved → reject)
+BREAKOUT_TRIGGER_BUFFER_PCT = 0.005  # anticipatory entry = range_high * (1 + this)
+
+# Breakout states considered actionable for a BUY signal
+ACTIONABLE_BREAKOUT_STATES = ("BUY_ZONE", "BREAKOUT_CONFIRMED")
+
+# -----------------------------------------------------------------------------
+# DYNAMIC RISK (structural SL + measured-move targets)
+# -----------------------------------------------------------------------------
+SL_ATR_BUFFER_MULT    = 0.5     # SL = range_low - 0.5*ATR (just below box support)
+MEASURED_MOVE_T2_MULT = 1.5     # T2 = breakout_level + 1.5 x box height
+MEASURED_MOVE_T3_MULT = 2.0     # T3 = breakout_level + 2.0 x box height
+
+# -----------------------------------------------------------------------------
+# RELATIVE STRENGTH / SECTOR MOMENTUM
+# -----------------------------------------------------------------------------
+INDEX_SYMBOL        = "^NSEI"            # Nifty 50 — relative-strength baseline
+RS_LOOKBACK_WINDOWS = [21, 63, 126]      # ~1m / 3m / 6m trading-day windows
+RS_NEUTRAL          = 50.0               # >50 = outperforming the index
+SECTOR_MOMENTUM_LOOKBACK = 63            # ~3 months of daily bars
+SECTOR_NEUTRAL      = 50.0
+# Per-lookback return that maps to the score extremes (±this → ~10/90)
+RS_RETURN_SCALE     = 0.20
+SECTOR_RETURN_SCALE = 0.20
 
 # -----------------------------------------------------------------------------
 # CLASSIFICATION RULES
 # -----------------------------------------------------------------------------
-# Minimum scores per category
+# A BUY-category signal (INVESTMENT/SWING/POSITIONAL) is emitted only when an
+# actionable breakout setup exists; otherwise WATCH (forming) or IGNORE.
 CATEGORY_RULES = {
-    "INVESTMENT":  {"weekly_bull": True,  "monthly_bull": True,  "min_score": 70},
-    "SWING":       {"daily_bull": True,   "min_gate": 60,        "min_score": 60},
-    "POSITIONAL":  {"hourly_bull": True,  "min_gate": 50,        "min_score": 50},
-    "WATCH":       {"min_gate": 55,       "no_breakout_yet": True},
+    "INVESTMENT":  {"weekly_bull": True,  "monthly_bull": True,  "min_score": 70, "min_fundamental": 55},
+    "SWING":       {"daily_bull": True,   "min_gate": 55,        "min_score": 60},
+    "POSITIONAL":  {"hourly_bull": True,  "min_gate": 45,        "min_score": 50},
+    "WATCH":       {"min_gate": 50,       "no_breakout_yet": True},
     "IGNORE":      {},   # default bucket
 }
 
@@ -211,8 +290,12 @@ DEFAULT_UNIVERSE = NIFTY_50 + NIFTY_NEXT_50_SAMPLE
 
 
 def yf_symbol(sym: str) -> str:
-    """Append NSE Yahoo suffix if not already suffixed (.NS or .BO)."""
-    if sym.endswith((".NS", ".BO")):
+    """Append NSE Yahoo suffix if not already suffixed (.NS or .BO).
+
+    Index symbols (Yahoo uses a '^' prefix, e.g. ^NSEI, ^NSEBANK) are passed
+    through unchanged so relative-strength / sector-momentum fetches resolve.
+    """
+    if sym.startswith("^") or sym.endswith((".NS", ".BO")):
         return sym
     return f"{sym}.NS"
 

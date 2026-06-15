@@ -31,8 +31,16 @@ class RiskManagementAgent(BaseAgent):
         mtf_data: Dict,
         mtf_per_tf: Dict,
         mtf_summary: Dict,
+        rs_score: Optional[float] = None,
+        sector_momentum: Optional[float] = None,
+        fundamental_score: Optional[float] = None,
     ) -> Optional[Dict]:
-        sig = signal_engine.generate_signal(symbol, mtf_data, mtf_per_tf, mtf_summary)
+        sig = signal_engine.generate_signal(
+            symbol, mtf_data, mtf_per_tf, mtf_summary,
+            rs_score=rs_score,
+            sector_momentum=sector_momentum,
+            fundamental_score=fundamental_score,
+        )
         if not sig:
             return None
         # Defensive checks (signal_engine already enforces, but double-check)

@@ -132,6 +132,12 @@ def leading_timeframe(mtf: Dict[str, Dict]) -> Optional[str]:
         return None
     if a["gate"]["is_gate"] or a["breakout_prob"] >= 60:
         return target
+    # Strategy rework: a daily in an actionable breakout state (approaching or
+    # freshly through the consolidation box) is a valid entry TF even if the
+    # blended GATE score is sub-threshold — signal_engine does the final gating.
+    state = (a["gate"].get("range") or {}).get("state")
+    if state in config.ACTIONABLE_BREAKOUT_STATES:
+        return target
     return None
 
 

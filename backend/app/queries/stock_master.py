@@ -132,6 +132,12 @@ async def update_fundamentals(
     dividend_yield: float | None,
     eps: float | None,
     book_value: float | None,
+    roe: float | None = None,
+    roce: float | None = None,
+    revenue_growth: float | None = None,
+    profit_growth: float | None = None,
+    debt_to_equity: float | None = None,
+    profit_margin: float | None = None,
 ) -> None:
     await conn.execute("""
         UPDATE stock_master SET
@@ -143,13 +149,21 @@ async def update_fundamentals(
             dividend_yield = $8,
             eps            = $9,
             book_value     = $10,
+            roe            = $11,
+            roce           = $12,
+            revenue_growth = $13,
+            profit_growth  = $14,
+            debt_to_equity = $15,
+            profit_margin  = $16,
             sync_status    = 'enriched',
             last_synced_at = NOW(),
             sync_error     = NULL,
             updated_at     = NOW()
         WHERE symbol = $1 AND exchange = $2
     """, symbol, exchange, sector, industry, market_cap,
-        _f(pe_ratio), _f(pb_ratio), _f(dividend_yield), _f(eps), _f(book_value))
+        _f(pe_ratio), _f(pb_ratio), _f(dividend_yield), _f(eps), _f(book_value),
+        _f(roe), _f(roce), _f(revenue_growth), _f(profit_growth),
+        _f(debt_to_equity), _f(profit_margin))
 
 
 async def mark_sync_failed(
@@ -483,6 +497,30 @@ async def get_master_universe(conn: asyncpg.Connection) -> list[str]:
         """
     )
     return [r["sym"] for r in rows]
+
+
+async def get_fundamentals_map(conn: asyncpg.Connection) -> dict[str, dict]:
+    """
+    Return {symbol: {fundamental fields}} for every non-delisted stock.
+
+    Loaded once per scan so the ranking stage can score fundamental strength
+    without a per-symbol DB round-trip. NUMERIC columns come back as Decimal —
+    callers should treat them as floats (fundamentals.fundamental_score does).
+    """
+    rows = await conn.fetch(
+        """
+        SELECT symbol, sector, industry, market_cap, pe_ratio, pb_ratio,
+               dividend_yield, eps, book_value, roe, roce, revenue_growth,
+               profit_growth, debt_to_equity, profit_margin
+        FROM stock_master
+        WHERE sync_status != 'delisted'
+        """
+    )
+    out: dict[str, dict] = {}
+    for r in rows:
+        d = dict(r)
+        out[d.pop("symbol")] = d
+    return out
 
 
 async def get_symbols_for_mode(conn: asyncpg.Connection, mode: str) -> list[str]:

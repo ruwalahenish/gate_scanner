@@ -86,7 +86,17 @@
       "Bash(python -m py_compile app/core/scanner/universe/stock_master_sync.py app/services/stock_service.py app/queries/stock_master.py app/tasks/stock_tasks.py app/tasks/celery_app.py app/models/stock.py app/routers/stock_master.py)",
       "Bash(graphify export *)",
       "Bash(graphify --help)",
-      "Bash(graphify update *)"
+      "Bash(graphify update *)",
+      "Bash(python -m py_compile app/agents/scanner_agent.py app/core/scanner/pipeline.py)",
+      "Bash(python -m py_compile app/core/analysis/fundamentals.py app/core/config.py app/queries/stock_master.py app/services/stock_service.py app/core/scanner/universe/stock_master_sync.py)",
+      "Bash(python -m py_compile app/core/analysis/indicators.py app/core/analysis/range_engine.py app/core/analysis/accumulation.py app/core/analysis/relative_strength.py app/core/analysis/sector_engine.py app/core/analysis/contraction_engine.py)",
+      "Bash(python -m py_compile app/core/analysis/signal_engine.py app/agents/risk_agent.py)",
+      "Bash(python -m py_compile app/core/ranking/ranking_engine.py app/core/ranking/classifier.py)",
+      "Bash(python -m py_compile app/core/scanner/pipeline.py app/services/scan_service.py app/queries/signals.py app/models/signal.py app/agents/mtf_agent.py)",
+      "Bash(python -m compileall -q app)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
+      "Bash(python -m py_compile app/core/ranking/classifier.py app/agents/ranking_agent.py app/queries/signals.py)",
+      "Bash(python -m py_compile app/routers/scans.py app/utils/display.py app/models/signal.py app/core/reporting/scan_report.py app/core/ranking/classifier.py app/queries/signals.py)"
     ],
     "additionalDirectories": [
       "\\mnt\\d\\gate-scanner",

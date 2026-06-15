@@ -86,7 +86,7 @@ async def trigger_scan(
 
 @router.get("/latest/signals")
 async def get_latest_signals_endpoint(
-    status: str | None = Query(None, pattern="^(BUY|WATCH|NO_ACTION)$"),
+    status: str | None = Query(None, pattern="^(BUY|BREAKOUT|WATCH|NO_ACTION)$"),
     min_rank: float = Query(0, ge=0, le=100),
     min_gate: float = Query(0, ge=0, le=100),
     side: str | None = None,
@@ -101,6 +101,8 @@ async def get_latest_signals_endpoint(
     category_filter = None
     if status == "BUY":
         category_filter = None  # handled via post-filter below
+    elif status == "BREAKOUT":
+        category_filter = "BREAKOUT"
     elif status == "WATCH":
         category_filter = "WATCH"
     elif status == "NO_ACTION":
@@ -145,7 +147,7 @@ async def get_latest_signals_endpoint(
 @router.get("/{scan_id}/signals")
 async def get_scan_signals(
     scan_id: UUID,
-    status: str | None = Query(None, pattern="^(BUY|WATCH|NO_ACTION)$"),
+    status: str | None = Query(None, pattern="^(BUY|BREAKOUT|WATCH|NO_ACTION)$"),
     min_rank: float = Query(0, ge=0, le=100),
     min_gate: float = Query(0, ge=0, le=100),
     limit: int = Query(50, ge=1, le=200),
@@ -158,7 +160,9 @@ async def get_scan_signals(
         raise HTTPException(status_code=404, detail="Scan not found")
 
     category_filter = None
-    if status == "WATCH":
+    if status == "BREAKOUT":
+        category_filter = "BREAKOUT"
+    elif status == "WATCH":
         category_filter = "WATCH"
     elif status == "NO_ACTION":
         category_filter = "IGNORE"
