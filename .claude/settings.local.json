@@ -83,7 +83,10 @@
       "Bash(python -m py_compile app/utils/serialization.py app/utils/display.py app/config.py app/routers/dashboard.py app/routers/scans.py app/routers/signals.py app/routers/backtests.py app/routers/paper_trading.py app/routers/watchlist.py app/routers/stock_master.py app/services/stock_service.py app/tasks/scanner_tasks.py app/models/paper_trading.py)",
       "Bash(python -c \"from app.main import app; print\\('app import OK'\\)\")",
       "Bash(python -m py_compile app/queries/stock_master.py app/services/scan_service.py)",
-      "Bash(python -m py_compile app/core/scanner/universe/stock_master_sync.py app/services/stock_service.py app/queries/stock_master.py app/tasks/stock_tasks.py app/tasks/celery_app.py app/models/stock.py app/routers/stock_master.py)"
+      "Bash(python -m py_compile app/core/scanner/universe/stock_master_sync.py app/services/stock_service.py app/queries/stock_master.py app/tasks/stock_tasks.py app/tasks/celery_app.py app/models/stock.py app/routers/stock_master.py)",
+      "Bash(graphify export *)",
+      "Bash(graphify --help)",
+      "Bash(graphify update *)"
     ],
     "additionalDirectories": [
       "\\mnt\\d\\gate-scanner",
