@@ -40,6 +40,13 @@ WEB     = ROOT / "apps" / "web"
 
 IS_WIN = platform.system() == "Windows"
 
+# Force UTF-8 for stdout/stderr on Windows so that Unicode characters
+# from subprocess output (e.g. Next.js ▲) don't crash with cp1252 errors.
+if IS_WIN:
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
 # ── ANSI colours ──────────────────────────────────────────────────────────
 # Enable VT processing on Windows 10+ so ANSI codes render in cmd/PowerShell
 if IS_WIN:
@@ -339,13 +346,13 @@ def main() -> None:
 
     # ── Ready banner ──────────────────────────────────────────────────────
     print(f"""
-{c('ok')}┌─────────────────────────────────────────────┐
-│         GATE Platform is running            │
-├─────────────────────────────────────────────┤
-│  Frontend  →  http://localhost:3000         │
-│  Backend   →  http://localhost:8000         │
-│  API Docs  →  http://localhost:8000/api/docs│
-└─────────────────────────────────────────────┘{c('reset')}
+{c('ok')}+---------------------------------------------+
+|         GATE Platform is running            |
++---------------------------------------------+
+|  Frontend  ->  http://localhost:3000         |
+|  Backend   ->  http://localhost:8000         |
+|  API Docs  ->  http://localhost:8000/api/docs|
++---------------------------------------------+{c('reset')}
 {c('dim')}Press Ctrl+C to stop all services.{c('reset')}
 """)
 

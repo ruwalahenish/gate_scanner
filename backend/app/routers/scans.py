@@ -98,9 +98,9 @@ async def get_latest_signals_endpoint(
 ):
     """Primary signals endpoint — returns latest scan results with business terminology."""
     # Map display status filter back to internal categories
-    category_filter = None
+    category_filter: str | list[str] | None = None
     if status == "BUY":
-        category_filter = None  # handled via post-filter below
+        category_filter = ["INVESTMENT", "SWING", "POSITIONAL"]
     elif status == "BREAKOUT":
         category_filter = "BREAKOUT"
     elif status == "WATCH":
@@ -123,17 +123,11 @@ async def get_latest_signals_endpoint(
         min_gate=min_gate,
         side=side,
         timeframe=timeframe,
-        limit=limit if status != "BUY" else 200,
-        offset=offset if status != "BUY" else 0,
+        limit=limit,
+        offset=offset,
     )
 
     items = [enrich_signal_display(serialize_row(r, _JSONB_COLS)) for r in rows]
-
-    # BUY filter: keep INVESTMENT/SWING/POSITIONAL only
-    if status == "BUY":
-        items = [i for i in items if i["display_status"] == "BUY"]
-        items = items[offset: offset + limit]
-        total = len(items)
 
     result = {"total": total, "items": items}
     try:
@@ -200,8 +194,10 @@ async def get_scan_signals(
     if not row:
         raise HTTPException(status_code=404, detail="Scan not found")
 
-    category_filter = None
-    if status == "BREAKOUT":
+    category_filter: str | list[str] | None = None
+    if status == "BUY":
+        category_filter = ["INVESTMENT", "SWING", "POSITIONAL"]
+    elif status == "BREAKOUT":
         category_filter = "BREAKOUT"
     elif status == "WATCH":
         category_filter = "WATCH"
@@ -213,15 +209,11 @@ async def get_scan_signals(
         category=category_filter,
         min_rank=min_rank,
         min_gate=min_gate,
-        limit=limit if status != "BUY" else 200,
-        offset=offset if status != "BUY" else 0,
+        limit=limit,
+        offset=offset,
     )
 
     items = [enrich_signal_display(serialize_row(r, _JSONB_COLS)) for r in rows]
-    if status == "BUY":
-        items = [i for i in items if i["display_status"] == "BUY"]
-        items = items[offset: offset + limit]
-        total = len(items)
 
     return {"total": total, "items": items}
 

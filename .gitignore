@@ -149,3 +149,6 @@ celerybeat.pid
 .planning/
 .vercel
 .env*
+
+
+.playwright-mcp/

@@ -111,7 +111,7 @@ def _f(v) -> float | None:
 
 async def get_latest_signals(
     conn: asyncpg.Connection,
-    category: str | None = None,
+    category: str | list[str] | None = None,
     min_rank: float = 0,
     min_gate: float = 0,
     side: str | None = None,
@@ -129,9 +129,15 @@ async def get_latest_signals(
     idx = 3
 
     if category:
-        where.append(f"s.category = ${idx}")
-        params.append(category)
-        idx += 1
+        if isinstance(category, list):
+            placeholders = ", ".join(f"${idx + i}" for i in range(len(category)))
+            where.append(f"s.category IN ({placeholders})")
+            params.extend(category)
+            idx += len(category)
+        else:
+            where.append(f"s.category = ${idx}")
+            params.append(category)
+            idx += 1
     if side:
         where.append(f"s.side = ${idx}")
         params.append(side)
