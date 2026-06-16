@@ -39,11 +39,11 @@ def run_scan_task(self, scan_id: str, universe: list[str], mode: str = "daily"):
 
 
 async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
+    import asyncpg
     import redis.asyncio as aioredis
     from app.config import get_settings
     from app.core.json_utils import CustomEncoder
     from app.services.scan_service import run_scan_async
-    from app.db import create_pool, close_pool
     from app.queries.scans import update_scan_status
     from app.queries.signals import insert_signals_batch
     import json
@@ -52,7 +52,13 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
     db_pool = None
     redis = None
     try:
-        db_pool = await create_pool()
+        db_pool = await asyncpg.create_pool(
+            dsn=settings.database_url,
+            min_size=1, max_size=5,
+            command_timeout=30,
+            statement_cache_size=0,
+            max_inactive_connection_lifetime=180,
+        )
         redis = aioredis.from_url(settings.redis_url, decode_responses=True)
     except Exception as exc:
         log.error("scan_init_failed", scan_id=scan_id, error=str(exc))
@@ -216,7 +222,8 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
                 await redis.delete("scan:running")
             except Exception:
                 pass
-        await close_pool()
+        if db_pool is not None:
+            await db_pool.close()
         if redis is not None:
             try:
                 await redis.aclose()
@@ -254,14 +261,19 @@ def _serialize_batch_for_ws(batch: list) -> list:
 
 
 async def _mark_scan_failed(scan_id: str, error: str):
-    from app.db import create_pool, close_pool
+    import asyncpg
+    from app.config import get_settings
     from app.queries.scans import update_scan_status
-    db_pool = await create_pool()
+    settings = get_settings()
+    db_pool = await asyncpg.create_pool(
+        dsn=settings.database_url, min_size=1, max_size=2,
+        command_timeout=30, statement_cache_size=0,
+    )
     try:
         async with db_pool.acquire() as conn:
             await update_scan_status(conn, UUID(scan_id), "failed", error_message=error)
     finally:
-        await close_pool()
+        await db_pool.close()
 
 
 def _now() -> str:

@@ -45,9 +45,9 @@ def monitor_paper_trades_task():
 
 
 async def _monitor_async():
+    import asyncpg
     import redis.asyncio as aioredis
     from app.config import get_settings
-    from app.db import create_pool, close_pool
     from app.services.automation_service import auto_exit_positions
     from app.services.ws_manager import make_event
 
@@ -59,7 +59,10 @@ async def _monitor_async():
     db_pool = None
     redis = None
     try:
-        db_pool = await create_pool()
+        db_pool = await asyncpg.create_pool(
+            dsn=settings.database_url, min_size=1, max_size=3,
+            command_timeout=30, statement_cache_size=0,
+        )
         redis = aioredis.from_url(settings.redis_url, decode_responses=True)
 
         async with db_pool.acquire() as conn:
@@ -75,7 +78,7 @@ async def _monitor_async():
         log.error("monitor_paper_trades_failed", error=str(exc))
     finally:
         if db_pool is not None:
-            await close_pool()
+            await db_pool.close()
         if redis is not None:
             try:
                 await redis.aclose()
@@ -99,9 +102,9 @@ def broadcast_position_prices_task():
 
 
 async def _broadcast_prices_async():
+    import asyncpg
     import redis.asyncio as aioredis
     from app.config import get_settings
-    from app.db import create_pool, close_pool
     from app.services.price_service import get_bulk_prices
     from app.services.ws_manager import make_event
 
@@ -113,7 +116,10 @@ async def _broadcast_prices_async():
     db_pool = None
     redis = None
     try:
-        db_pool = await create_pool()
+        db_pool = await asyncpg.create_pool(
+            dsn=settings.database_url, min_size=1, max_size=3,
+            command_timeout=30, statement_cache_size=0,
+        )
         redis = aioredis.from_url(settings.redis_url, decode_responses=True)
 
         async with db_pool.acquire() as conn:
@@ -139,7 +145,7 @@ async def _broadcast_prices_async():
         log.error("broadcast_position_prices_failed", error=str(exc))
     finally:
         if db_pool is not None:
-            await close_pool()
+            await db_pool.close()
         if redis is not None:
             try:
                 await redis.aclose()

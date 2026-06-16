@@ -36,10 +36,16 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,
 
-    # Don't store task results in Redis — they're tracked via custom stock_sync:*
-    # keys instead. Disabling this is the single biggest reduction in Upstash
-    # free-tier request consumption (saves ~3 Redis writes per task completion).
+    # Don't store task results in Redis — reduces Upstash free-tier request usage.
     task_ignore_result=True,
+    task_send_sent_event=False,       # disables per-task sent events via broker
+    worker_send_task_events=False,    # disables worker heartbeats via broker
+    # Increase BRPOP timeout: 30s blocks instead of default 5s → 86k BRPOP/month
+    # vs 518k/month. Safety net for local dev (production has no worker).
+    broker_transport_options={
+        "socket_timeout": 30,
+        "visibility_timeout": 3600,
+    },
 
     # Task routing — separate queues per concern
     task_default_queue="default",
