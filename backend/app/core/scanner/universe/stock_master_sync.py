@@ -294,7 +294,7 @@ def phase_bse_fetch_equity(groups: tuple[str, ...] = _BSE_GROUPS) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Phase 3 — fundamentals enrichment (Screener.in primary, yfinance fallback)
+# Phase 3 — fundamentals enrichment (Screener.in only)
 # ---------------------------------------------------------------------------
 
 def phase3_enrich_fundamentals(
@@ -303,38 +303,35 @@ def phase3_enrich_fundamentals(
     delay_between_batches: float = 2.0,
 ) -> list[dict]:
     """
-    Enrich fundamentals for each pending symbol.
+    Enrich fundamentals for each pending symbol via Screener.in.
 
-    Primary source: Screener.in (richer data, true ROCE, quarterly trends).
-    Fallback: yfinance .info (used when Screener.in returns empty or fails).
+    yfinance is NOT used for fundamentals — only for OHLCV and live price.
+    If Screener.in returns empty for a symbol the row is marked failed so
+    it can be retried on the next scheduled run.
 
     Result dict keys (per input row):
-        symbol, exchange, sector, industry, market_cap, pe_ratio, pb_ratio,
-        dividend_yield, eps, book_value, roe, roce, revenue_growth,
-        profit_growth, debt_to_equity, profit_margin,
-        -- Screener extended fields (None when yfinance fallback used) --
-        roce_actual, opm_latest, free_cash_flow, promoter_holding,
-        fii_holding, dii_holding, debtor_days, revenue_cagr_3y, profit_cagr_3y,
-        screener_price, screener_52w_high, screener_52w_low,
-        screener_price_change_pct, data_source,
-        -- meta --
+        symbol, exchange, market_cap, pe_ratio, pb_ratio, dividend_yield,
+        eps, book_value, roe, roce_actual, revenue_growth, profit_growth,
+        debt_to_equity, profit_margin, opm_latest, free_cash_flow,
+        promoter_holding, fii_holding, dii_holding, debtor_days,
+        revenue_cagr_3y, profit_cagr_3y, screener_price, screener_52w_high,
+        screener_52w_low, screener_price_change_pct, data_source,
         success, error
     """
     from app.core.scanner.universe.screener_fetcher import fetch_company
 
-    _empty_fundamentals = {
+    _empty_fundamentals: dict = {
         "sector": None, "industry": None, "market_cap": None,
         "pe_ratio": None, "pb_ratio": None, "dividend_yield": None,
         "eps": None, "book_value": None,
         "roe": None, "roce": None, "revenue_growth": None,
         "profit_growth": None, "debt_to_equity": None, "profit_margin": None,
-        # Extended Screener fields
         "roce_actual": None, "opm_latest": None, "free_cash_flow": None,
         "promoter_holding": None, "fii_holding": None, "dii_holding": None,
         "debtor_days": None, "revenue_cagr_3y": None, "profit_cagr_3y": None,
         "screener_price": None, "screener_52w_high": None,
         "screener_52w_low": None, "screener_price_change_pct": None,
-        "data_source": "yfinance",
+        "data_source": "screener",
     }
 
     results: list[dict] = []
@@ -350,77 +347,27 @@ def phase3_enrich_fundamentals(
             "success": False, "error": None,
         }
 
-        # ── Primary: Screener.in ─────────────────────────────────────────
-        # Only NSE stocks have a standard Screener.in listing
-        if exchange == "NSE":
-            try:
-                data = fetch_company(symbol)   # rate-limit sleep built-in
-                if data:
-                    result.update(data)
-                    result["data_source"] = "screener"
-                    result["success"] = True
-                    results.append(result)
-                    if (i + 1) % batch_size == 0 and (i + 1) < total:
-                        time.sleep(delay_between_batches)
-                    continue
-            except Exception as exc:
-                logger.debug("screener failed for %s, falling back to yfinance: %s",
-                             symbol, exc)
-
-        # ── Fallback: yfinance ────────────────────────────────────────────
         try:
-            import yfinance as yf
-        except ImportError:
-            result["error"] = "yfinance not installed and Screener.in failed"
-            results.append(result)
-            continue
-
-        if exchange == "BSE" or symbol.endswith(".BO"):
-            yf_sym = symbol if symbol.endswith(".BO") else f"{symbol}.BO"
-        else:
-            yf_sym = f"{symbol}.NS"
-
-        try:
-            info = yf.Ticker(yf_sym).info
-            # ROCE is not exposed by yfinance — approximate with returnOnAssets.
-            result.update({
-                "sector":         info.get("sector"),
-                "industry":       info.get("industry"),
-                "market_cap":     _safe_int(info.get("marketCap")),
-                "pe_ratio":       _safe_float(info.get("trailingPE")),
-                "pb_ratio":       _safe_float(info.get("priceToBook")),
-                "dividend_yield": _safe_float(info.get("dividendYield")),
-                "eps":            _safe_float(info.get("trailingEps")),
-                "book_value":     _safe_float(info.get("bookValue")),
-                "roe":            _safe_float(info.get("returnOnEquity")),
-                "roce":           _safe_float(info.get("returnOnAssets")),
-                "revenue_growth": _safe_float(info.get("revenueGrowth")),
-                "profit_growth":  _safe_float(
-                    info.get("earningsGrowth")
-                    if info.get("earningsGrowth") is not None
-                    else info.get("earningsQuarterlyGrowth")
-                ),
-                "debt_to_equity": _safe_float(info.get("debtToEquity")),
-                "profit_margin":  _safe_float(info.get("profitMargins")),
-                "data_source":    "yfinance",
-                "success":        True,
-            })
-        except Exception as e:
-            result["error"] = str(e)[:300]
-            logger.debug("yfinance failed for %s: %s", yf_sym, e)
+            data = fetch_company(symbol)   # rate-limit sleep (1.5–3.5 s) built-in
+            if data:
+                result.update(data)
+                result["data_source"] = "screener"
+                result["success"] = True
+            else:
+                result["error"] = "screener_fetcher returned empty result"
+                logger.debug("screener: no data for %s (%s)", symbol, exchange)
+        except Exception as exc:
+            result["error"] = str(exc)[:300]
+            logger.debug("screener: exception for %s: %s", symbol, exc)
 
         results.append(result)
-
-        # Rate-limit between batches (yfinance path)
         if (i + 1) % batch_size == 0 and (i + 1) < total:
             time.sleep(delay_between_batches)
 
     succeeded = sum(1 for r in results if r["success"])
-    screener_count = sum(1 for r in results if r.get("data_source") == "screener")
     logger.info(
-        "Phase 3: enriched %d/%d symbols (screener=%d yfinance=%d failed=%d)",
-        succeeded, total, screener_count,
-        succeeded - screener_count, total - succeeded,
+        "Phase 3: enriched %d/%d symbols via Screener.in (failed=%d)",
+        succeeded, total, total - succeeded,
     )
     return results
 

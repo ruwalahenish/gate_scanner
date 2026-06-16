@@ -9,7 +9,7 @@ import {
 } from "@mui/material";
 import { DataGrid, type GridColDef } from "@mui/x-data-grid";
 import {
-  ArrowBack, Refresh, PlayArrow, Stop,
+  ArrowBack, Refresh, PlayArrow, Stop, ShowChart, Storage,
 } from "@mui/icons-material";
 import { GATEChart } from "@/components/domain/GATEChart";
 import { TradeSetupPanel } from "@/components/domain/TradeSetupPanel";
@@ -366,6 +366,24 @@ export default function StockDetailPage() {
           </Box>
         </Box>
       </Box>
+
+      {/* Data source legend */}
+      <Stack direction="row" spacing={1} mb={1.5} flexWrap="wrap">
+        <Chip
+          icon={<ShowChart sx={{ fontSize: "14px !important" }} />}
+          label="OHLCV & Live Price — yfinance"
+          size="small"
+          variant="outlined"
+          sx={{ fontSize: "0.68rem", height: 22, borderColor: "rgba(99,102,241,0.4)", color: "text.secondary" }}
+        />
+        <Chip
+          icon={<Storage sx={{ fontSize: "14px !important" }} />}
+          label="Fundamentals (PE, ROCE, OPM, Shareholding) — Screener.in"
+          size="small"
+          variant="outlined"
+          sx={{ fontSize: "0.68rem", height: 22, borderColor: "rgba(34,197,94,0.4)", color: "text.secondary" }}
+        />
+      </Stack>
 
       {/* Tabs */}
       <Tabs value={tab} onChange={(_, v) => setTab(v)} aria-label="Stock detail sections" sx={{ mb: 2, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>

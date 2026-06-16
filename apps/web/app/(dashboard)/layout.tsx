@@ -26,7 +26,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <TopBar onMenuClick={() => dispatch(toggleSidebar())} />
         <Box
           id="main-content"
-          sx={{ flex: 1, overflow: "auto", p: 3 }}
+          sx={{ flex: 1, overflow: "auto", p: { xs: 1.5, sm: 2, md: 3 } }}
         >
           {children}
         </Box>

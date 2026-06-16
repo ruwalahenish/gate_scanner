@@ -4,8 +4,7 @@ import {
   Typography, Box, Divider, Tooltip, useTheme, useMediaQuery,
 } from "@mui/material";
 import {
-  Dashboard, BarChart, TableChart,
-  Star, TrendingUp, Scanner,
+  Dashboard, TableChart, Scanner,
 } from "@mui/icons-material";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -18,12 +17,6 @@ const NAV_MAIN = [
   { label: "Dashboard",     href: "/",        icon: <Dashboard fontSize="small" /> },
   { label: "Master Stocks", href: "/stocks",   icon: <TableChart fontSize="small" /> },
   { label: "GATE Scanner",  href: "/scanner",  icon: <Scanner fontSize="small" /> },
-];
-
-const NAV_TOOLS = [
-  { label: "Watchlist",     href: "/watchlist",     icon: <Star fontSize="small" /> },
-  { label: "Paper Trading", href: "/paper-trading", icon: <TrendingUp fontSize="small" /> },
-  { label: "Backtest",      href: "/backtest",      icon: <BarChart fontSize="small" /> },
 ];
 
 const ITEM_SX = {
@@ -114,11 +107,6 @@ function DrawerContent({ pathname, connected }: { pathname: string; connected: b
       <List dense sx={{ px: 1, flex: 1 }}>
         <Typography sx={SECTION_LABEL_SX}>Main</Typography>
         {NAV_MAIN.map((item) => (
-          <NavItem key={item.href} {...item} pathname={pathname} />
-        ))}
-
-        <Typography sx={{ ...SECTION_LABEL_SX, mt: 0.5 }}>Tools</Typography>
-        {NAV_TOOLS.map((item) => (
           <NavItem key={item.href} {...item} pathname={pathname} />
         ))}
       </List>

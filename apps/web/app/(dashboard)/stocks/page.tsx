@@ -8,7 +8,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, Stepper, Step, StepLabel,
 } from "@mui/material";
 import { DataGrid, type GridColDef, type GridPaginationModel, type GridRowParams } from "@mui/x-data-grid";
-import { Sync, CheckCircle, Schedule, ErrorOutline, Info } from "@mui/icons-material";
+import { Sync, CheckCircle, Schedule, ErrorOutline, Info, ShowChart, Storage } from "@mui/icons-material";
 import { useSnackbar } from "notistack";
 import { useSelector, useDispatch } from "react-redux";
 import { StatCard } from "@/components/ui/StatCard";
@@ -51,8 +51,8 @@ const SYNC_PHASES = [
   },
   {
     key: "fundamentals",
-    label:  "Phase 3 — Fundamentals (yfinance)",
-    detail: "Enriches sector, PE, PB, market cap for pending stocks (batch, rate-limited)",
+    label:  "Phase 3 — Fundamentals (Screener.in)",
+    detail: "Fetches PE, ROCE, OPM, promoter holding, FCF and more for pending stocks via Screener.in (batch, rate-limited)",
   },
 ];
 
@@ -117,7 +117,7 @@ function SyncDialog({
 const PHASE_LABEL: Record<string, string> = {
   equity:       "Phase 1 — Downloading NSE equity list",
   index_flags:  "Phase 2 — Updating index memberships",
-  fundamentals: "Phase 3 — Enriching fundamentals (yfinance)",
+  fundamentals: "Phase 3 — Enriching fundamentals (Screener.in)",
 };
 
 function SyncProgressCard({ status }: { status: SyncTaskStatus }) {
@@ -457,6 +457,22 @@ export default function StocksPage() {
           <Typography variant="caption" color="text.secondary">
             Central registry · click any row to view GATE chart and analysis
           </Typography>
+          <Stack direction="row" spacing={1} mt={0.5} flexWrap="wrap">
+            <Chip
+              icon={<ShowChart sx={{ fontSize: "13px !important" }} />}
+              label="OHLCV & Price — yfinance"
+              size="small"
+              variant="outlined"
+              sx={{ fontSize: "0.65rem", height: 20, borderColor: "rgba(99,102,241,0.35)", color: "text.disabled" }}
+            />
+            <Chip
+              icon={<Storage sx={{ fontSize: "13px !important" }} />}
+              label="Fundamentals — Screener.in"
+              size="small"
+              variant="outlined"
+              sx={{ fontSize: "0.65rem", height: 20, borderColor: "rgba(34,197,94,0.35)", color: "text.disabled" }}
+            />
+          </Stack>
         </Box>
         <Stack direction="row" spacing={1} alignItems="center">
           {syncRunning && (
@@ -469,18 +485,6 @@ export default function StocksPage() {
               sx={{ fontSize: "0.72rem" }}
             />
           )}
-          <Tooltip title={syncRunning ? "A sync is already running" : ""} disableHoverListener={!syncRunning}>
-            <span>
-              <Button
-                variant="outlined" size="small"
-                startIcon={<Sync />}
-                disabled={syncing || syncRunning}
-                onClick={() => setSyncDialog(["equity", "index_flags"])}
-              >
-                Sync Indices
-              </Button>
-            </span>
-          </Tooltip>
           <Tooltip title={syncRunning ? "A sync is already running" : ""} disableHoverListener={!syncRunning}>
             <span>
               <Button
@@ -505,7 +509,7 @@ export default function StocksPage() {
           <StatCard label="Enriched" value={statsLoading ? "…" : (stats?.by_sync_status?.enriched ?? 0).toLocaleString()} color={STATUS_COLORS.INVESTMENT} icon={<CheckCircle />} />
         </Grid>
         <Grid item xs={6} sm={3}>
-          <StatCard label="Pending" value={statsLoading ? "…" : (stats?.by_sync_status?.pending ?? 0).toLocaleString()} color={STATUS_COLORS.WATCH} icon={<Schedule />} subtitle="awaiting yfinance" />
+          <StatCard label="Pending" value={statsLoading ? "…" : (stats?.by_sync_status?.pending ?? 0).toLocaleString()} color={STATUS_COLORS.WATCH} icon={<Schedule />} subtitle="awaiting Screener.in" />
         </Grid>
         <Grid item xs={6} sm={3}>
           <StatCard label="Failed" value={statsLoading ? "…" : (stats?.by_sync_status?.failed ?? 0).toLocaleString()} color={GATE_COLOR.FAIL} icon={<ErrorOutline />} subtitle="retry in 6 h" />

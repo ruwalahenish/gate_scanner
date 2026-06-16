@@ -100,18 +100,12 @@ export const theme = createTheme({
     // ── Global baseline ─────────────────────────────────────────────────
     MuiCssBaseline: {
       styleOverrides: {
-        body: {
-          scrollbarColor: "#2d2d40 #0f0f12",
-          "&::-webkit-scrollbar":       { width: 6 },
-          "&::-webkit-scrollbar-track": { background: "#0f0f12" },
-          "&::-webkit-scrollbar-thumb": {
-            background: "#2d2d40",
-            borderRadius: 3,
-            "&:hover": { background: "#3d3d58" },
-          },
-        },
-        // Focus-visible: show outline only on keyboard navigation, not mouse clicks.
+        // Global mobile resets
         "*, *::before, *::after": {
+          // Eliminate 300ms tap delay on all interactive elements
+          touchAction: "manipulation",
+          // Kill blue flash on Android WebView tap
+          WebkitTapHighlightColor: "transparent",
           "&:focus-visible": {
             outline: "2px solid rgba(99,102,241,0.7)",
             outlineOffset: 2,
@@ -120,9 +114,27 @@ export const theme = createTheme({
             outline: "none",
           },
         },
+        body: {
+          scrollbarColor: "#2d2d40 #0f0f12",
+          // iOS momentum scrolling for the whole body
+          WebkitOverflowScrolling: "touch",
+          "&::-webkit-scrollbar":       { width: 6 },
+          "&::-webkit-scrollbar-track": { background: "#0f0f12" },
+          "&::-webkit-scrollbar-thumb": {
+            background: "#2d2d40",
+            borderRadius: 3,
+            "&:hover": { background: "#3d3d58" },
+          },
+          // Prevent font size inflation on orientation change (iOS Safari)
+          WebkitTextSizeAdjust: "100%",
+        },
         // Suppress double-ring on MUI Tabs which manage their own focus indicator.
         ".MuiTab-root:focus-visible": {
           outline: "none",
+        },
+        // Horizontal scroll containers: momentum on iOS
+        ".MuiTableContainer-root": {
+          WebkitOverflowScrolling: "touch",
         },
       },
     },
@@ -195,6 +207,15 @@ export const theme = createTheme({
             outline: "2px solid rgba(99,102,241,0.6)",
             outlineOffset: 2,
           },
+          // 44×44pt minimum touch target on mobile (Apple HIG / WCAG 2.5.5)
+          "@media (hover: none) and (pointer: coarse)": {
+            minWidth: 44,
+            minHeight: 44,
+            // Centre the icon inside the enlarged touch target
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+          },
         },
       },
     },
@@ -242,6 +263,23 @@ export const theme = createTheme({
           backgroundColor: "#1e1e2e",
           border: "1px solid rgba(255,255,255,0.1)",
           boxShadow: "0 25px 60px rgba(0,0,0,0.7)",
+          // Full-screen sheet on mobile
+          "@media (max-width: 599px)": {
+            margin: 0,
+            maxWidth: "100% !important",
+            width: "100%",
+            maxHeight: "90vh",
+            borderRadius: "16px 16px 0 0",
+            position: "fixed",
+            bottom: 0,
+            left: 0,
+            right: 0,
+          },
+        },
+        container: {
+          "@media (max-width: 599px)": {
+            alignItems: "flex-end",
+          },
         },
       },
     },

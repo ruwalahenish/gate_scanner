@@ -101,7 +101,13 @@
       "Bash(python -c \"w = {'roe': 0.18, 'roce_actual': 0.15, 'revenue_growth': 0.10, 'revenue_cagr_3y': 0.08, 'profit_growth': 0.10, 'profit_cagr_3y': 0.08, 'debt_to_equity': 0.11, 'profit_margin': 0.05, 'opm_latest': 0.07, 'promoter_holding': 0.08}; print\\(f'Sum: {sum\\(w.values\\(\\)\\):.2f}'\\)\")",
       "PowerShell(Get-Command psql -ErrorAction SilentlyContinue)",
       "Bash(ruff check *)",
-      "PowerShell(cd \"d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\"; $env:NEXT_PUBLIC_API_URL = \"https://henish1999-gate-backend.hf.space\"; $env:NEXT_PUBLIC_WS_URL = \"wss://henish1999-gate-backend.hf.space/ws\"; npm run build 2>&1)"
+      "PowerShell(cd \"d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\"; $env:NEXT_PUBLIC_API_URL = \"https://henish1999-gate-backend.hf.space\"; $env:NEXT_PUBLIC_WS_URL = \"wss://henish1999-gate-backend.hf.space/ws\"; npm run build 2>&1)",
+      "PowerShell(cd \"d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\"; $env:NEXT_PUBLIC_API_URL = \"https://henish1999-gate-backend.hf.space\"; $env:NEXT_PUBLIC_WS_URL = \"wss://henish1999-gate-backend.hf.space/ws\"; npm run build 2>&1 | Select-String -Pattern \"error|Error|warning|compiled|failed|Route\" | Select-Object -First 40)",
+      "Bash(python -m ruff check app/ --select E,W,F --ignore E501)",
+      "PowerShell(cd \"d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\"; $env:NODE_OPTIONS=\"--max-old-space-size=4096\"; npx tsc --noEmit 2>&1 | Select-Object -First 50)",
+      "PowerShell(cd \"d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\"; $env:NODE_OPTIONS=\"--max-old-space-size=2048\"; npx tsc --noEmit --isolatedModules 2>&1 | Select-String -Pattern \"\\(error TS|Cannot find\\)\" | Select-Object -First 30)",
+      "PowerShell(cd \"d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\"; $env:NODE_OPTIONS=\"--max-old-space-size=3072\"; npx next build --experimental-turbo 2>&1 | tail -n 30)",
+      "PowerShell(cd \"d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\"; $env:NODE_OPTIONS=\"--max-old-space-size=3072\"; npx next build 2>&1 | Select-Object -Last 40)"
     ],
     "additionalDirectories": [
       "\\mnt\\d\\gate-scanner",

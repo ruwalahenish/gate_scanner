@@ -106,11 +106,15 @@ export function TopBar({ title, onMenuClick }: TopBarProps) {
             sx={{ display: "flex", alignItems: "center", gap: 1 }}
           >
             <CircularProgress size={14} thickness={5} aria-hidden="true" />
-            <Typography variant="caption" color="text.secondary">
+            <Typography variant="caption" color="text.secondary" sx={{ display: { xs: "none", sm: "block" } }}>
               {hasRealProgress
                 ? `Scanning… ${scanProgress.done}/${scanProgress.total} (${progressPct}%)`
                 : "Scanning…"}
               {streamingCount > 0 && ` · ${streamingCount} signals`}
+            </Typography>
+            {/* Compact mobile scan label */}
+            <Typography variant="caption" color="text.secondary" sx={{ display: { xs: "block", sm: "none" } }}>
+              {hasRealProgress ? `${progressPct}%` : "…"}
             </Typography>
           </Box>
         )}
