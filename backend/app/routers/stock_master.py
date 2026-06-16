@@ -11,8 +11,6 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-_log = logging.getLogger(__name__)
-
 from app.dependencies import db_conn, db_read_conn, redis_client
 from app.services.price_service import get_bulk_prices
 from app.models.stock import (
@@ -29,6 +27,8 @@ from app.queries.stock_master import (
     search_stocks,
 )
 from app.utils.serialization import serialize_row
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["stock_master"])
 
