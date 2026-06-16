@@ -36,8 +36,10 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,
 
-    # Result TTL — clean up completed task results after 1 hour
-    result_expires=3600,
+    # Don't store task results in Redis — they're tracked via custom stock_sync:*
+    # keys instead. Disabling this is the single biggest reduction in Upstash
+    # free-tier request consumption (saves ~3 Redis writes per task completion).
+    task_ignore_result=True,
 
     # Task routing — separate queues per concern
     task_default_queue="default",

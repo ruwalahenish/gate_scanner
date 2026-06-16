@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Optional
 from uuid import uuid4
 
 import asyncpg
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+
+_log = logging.getLogger(__name__)
 
 from app.dependencies import db_conn, db_read_conn, redis_client
 from app.services.price_service import get_bulk_prices
@@ -68,12 +71,61 @@ async def stats_endpoint(conn: asyncpg.Connection = Depends(db_read_conn)):
 # Sync trigger (admin action)
 # ---------------------------------------------------------------------------
 
+async def _run_sync_direct(phases: list[str]) -> None:
+    """Direct sync without Celery — used as fallback when Redis/Celery is unavailable."""
+    from app.config import get_settings
+    from app.services.stock_service import (
+        sync_nse_equity_async,
+        sync_bse_equity_async,
+        sync_index_flags_async,
+        enrich_fundamentals_async,
+    )
+    settings = get_settings()
+    pool = await asyncpg.create_pool(
+        dsn=settings.database_url, min_size=1, max_size=3, command_timeout=60
+    )
+    try:
+        if "equity" in phases:
+            async with pool.acquire() as conn:
+                _log.info("direct_sync: equity started")
+                result = await sync_nse_equity_async(conn)
+                _log.info("direct_sync: equity done %s", result)
+        if "bse_equity" in phases:
+            async with pool.acquire() as conn:
+                _log.info("direct_sync: bse_equity started")
+                result = await sync_bse_equity_async(conn)
+                _log.info("direct_sync: bse_equity done %s", result)
+        if "index_flags" in phases:
+            async with pool.acquire() as conn:
+                _log.info("direct_sync: index_flags started")
+                result = await sync_index_flags_async(conn)
+                _log.info("direct_sync: index_flags done %s", result)
+        if "fundamentals" in phases:
+            _log.info("direct_sync: fundamentals started")
+            while True:
+                async with pool.acquire() as conn:
+                    result = await enrich_fundamentals_async(conn, batch_size=50)
+                _log.info("direct_sync: fundamentals batch %s", result)
+                if result["processed"] == 0:
+                    break
+        _log.info("direct_sync: all phases complete %s", phases)
+    except Exception:
+        _log.exception("direct_sync_failed phases=%s", phases)
+    finally:
+        await pool.close()
+
+
 @router.post("/sync/trigger", response_model=SyncTriggerResponse)
 async def trigger_sync(
     body: SyncTriggerRequest,
+    background_tasks: BackgroundTasks,
     redis: aioredis.Redis = Depends(redis_client),
 ):
-    """Dispatch a Celery sync task for the requested phases."""
+    """Dispatch a Celery sync task for the requested phases.
+
+    Falls back to direct in-process execution via FastAPI BackgroundTasks when
+    Celery or Redis is unavailable (e.g. Upstash free-tier request limit hit).
+    """
     valid_phases = {"equity", "bse_equity", "index_flags", "fundamentals"}
     bad = [p for p in body.phases if p not in valid_phases]
     if bad:
@@ -83,23 +135,37 @@ async def trigger_sync(
         from app.tasks.stock_tasks import sync_stock_master
         task = sync_stock_master.delay(body.phases)
 
-        await redis.set("stock_sync:current", json.dumps({
-            "task_id":    str(task.id),
-            "phases":     body.phases,
-            "started_at": datetime.now(timezone.utc).isoformat(),
-        }), ex=7200)
-        await redis.delete("stock_sync:progress")
-        await redis.delete("stock_sync:phase")
+        # Best-effort Redis tracking — skip silently if Redis is rate-limited.
+        try:
+            await redis.set("stock_sync:current", json.dumps({
+                "task_id":    str(task.id),
+                "phases":     body.phases,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            }), ex=7200)
+            await redis.delete("stock_sync:progress")
+            await redis.delete("stock_sync:phase")
+        except Exception:
+            pass
 
         return SyncTriggerResponse(task_id=str(task.id), phases=body.phases, status="queued")
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Celery unavailable: {e}")
+
+    except Exception:
+        # Celery unavailable — run sync directly inside the FastAPI process.
+        task_id = str(uuid4())
+        background_tasks.add_task(_run_sync_direct, body.phases)
+        _log.warning("Celery unavailable — running stock sync directly (phases=%s)", body.phases)
+        return SyncTriggerResponse(task_id=task_id, phases=body.phases, status="running_direct")
 
 
 @router.get("/sync/status")
 async def get_sync_status(redis: aioredis.Redis = Depends(redis_client)):
     """Return current sync task state + live fundamentals progress."""
-    raw = await redis.get("stock_sync:current")
+    try:
+        raw = await redis.get("stock_sync:current")
+    except Exception:
+        return {"is_running": False, "state": "redis_unavailable",
+                "error": "Redis rate-limited — sync may still be running in background"}
+
     if not raw:
         return {"is_running": False, "state": "idle"}
 
@@ -115,10 +181,23 @@ async def get_sync_status(redis: aioredis.Redis = Depends(redis_client)):
         state = "UNKNOWN"
         error = None
 
-    is_running = state in ("PENDING", "STARTED", "RETRY")
+    try:
+        progress_raw  = await redis.get("stock_sync:progress")
+        current_phase = await redis.get("stock_sync:phase")
+    except Exception:
+        progress_raw  = None
+        current_phase = None
 
-    progress_raw   = await redis.get("stock_sync:progress")
-    current_phase  = await redis.get("stock_sync:phase")
+    # `stock_sync:phase` is set to "complete" or "failed" by the task when it
+    # finishes — use this as the primary completion signal so the status endpoint
+    # works correctly even when the Celery result backend is disabled.
+    phase_str = (current_phase.decode() if isinstance(current_phase, bytes) else current_phase) or ""
+    if phase_str in ("complete", "failed"):
+        is_running = False
+        if phase_str == "failed" and not error:
+            error = "Sync failed — check worker logs"
+    else:
+        is_running = state in ("PENDING", "STARTED", "RETRY", "UNKNOWN")
 
     return {
         "is_running":    is_running,

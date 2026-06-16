@@ -145,6 +145,17 @@ async def _sync_async(phases: list[str]) -> None:
                 failed=total_failed,
             )
 
+        # Mark completion so get_sync_status can detect done state even when
+        # the Celery result backend is disabled (task_ignore_result=True).
+        await redis.set("stock_sync:phase", "complete", ex=_TTL)
+
+    except Exception:
+        try:
+            await redis.set("stock_sync:phase", "failed", ex=_TTL)
+        except Exception:
+            pass
+        raise
+
     finally:
         await redis.aclose()
         await local_pool.close()
