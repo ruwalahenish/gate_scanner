@@ -91,12 +91,13 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
         """Called after each batch of ranked symbols — insert to DB and broadcast."""
         nonlocal total_inserted, universe_total
         universe_total = total
-        try:
-            async with db_pool.acquire() as conn:
-                count = await insert_signals_batch(conn, sid, batch)
-                total_inserted += count
-        except Exception as e:
-            log.warning("batch_insert_failed", scan_id=scan_id, error=str(e))
+        if batch:
+            try:
+                async with db_pool.acquire() as conn:
+                    count = await insert_signals_batch(conn, sid, batch)
+                    total_inserted += count
+            except Exception as e:
+                log.warning("batch_insert_failed", scan_id=scan_id, error=str(e))
 
         # Serialize signals for WebSocket (strip bulky ohlcv DataFrames)
         ws_signals = _serialize_batch_for_ws(batch)
@@ -121,6 +122,18 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
             "timestamp": _now(),
         })
 
+    async def on_phase(phase: str, message: str):
+        """Called when the pipeline enters a new major phase — broadcast so the UI can show it."""
+        await _publish("scan:progress", {
+            "type": "scan.phase",
+            "payload": {
+                "scan_id": scan_id,
+                "phase": phase,
+                "message": message,
+            },
+            "timestamp": _now(),
+        })
+
     try:
         await _publish("scan:progress", {
             "type": "scan.started",
@@ -128,7 +141,7 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
             "timestamp": _now(),
         })
 
-        await run_scan_async(universe, mode, on_batch=on_batch)
+        await run_scan_async(universe, mode, on_batch=on_batch, on_phase=on_phase)
         duration = time.perf_counter() - t0
         final_status = "done"
 

@@ -58,6 +58,8 @@ interface WSState {
   currentScanId: string | null;
   scanProgress: ScanProgress | null;
   scanStartedAt: number | null;
+  scanPhase: string | null;
+  scanPhaseMessage: string | null;
   streamingSignals: StreamingSignal[];
   // Total signals received (not bounded) — use for display counts in TopBar etc.
   streamingSignalsCount: number;
@@ -76,6 +78,8 @@ const initialState: WSState = {
   currentScanId: null,
   scanProgress: null,
   scanStartedAt: null,
+  scanPhase: null,
+  scanPhaseMessage: null,
   streamingSignals: [],
   streamingSignalsCount: 0,
   streamingBuyCount: 0,
@@ -110,8 +114,14 @@ export const wsSlice = createSlice({
       state.scanProgress    = { done: 0, total: 0 };
       state.currentScanId   = action.payload ?? null;
       state.scanStartedAt   = Date.now();
+      state.scanPhase       = null;
+      state.scanPhaseMessage = null;
       state.lastCompletionSummary = null;
       resetStreamingCounters(state);
+    },
+    scanPhaseReceived: (state, action: PayloadAction<{ phase: string; message: string }>) => {
+      state.scanPhase       = action.payload.phase;
+      state.scanPhaseMessage = action.payload.message;
     },
     scanProgressReceived: (state, action: PayloadAction<ScanProgress>) => {
       state.scanProgress = action.payload;
@@ -153,18 +163,22 @@ export const wsSlice = createSlice({
         no_action_count: state.streamingNoActionCount,
         duration_sec:    Math.round(duration),
       };
-      state.lastScanId    = action.payload.scan_id;
-      state.currentScanId = null;
-      state.scanProgress  = null;
-      state.scanStartedAt = null;
+      state.lastScanId      = action.payload.scan_id;
+      state.currentScanId   = null;
+      state.scanProgress    = null;
+      state.scanStartedAt   = null;
+      state.scanPhase       = null;
+      state.scanPhaseMessage = null;
     },
     clearStreamingSignals: (state) => {
       resetStreamingCounters(state);
     },
     scanFailed: (state) => {
-      state.currentScanId = null;
-      state.scanProgress  = null;
-      state.scanStartedAt = null;
+      state.currentScanId    = null;
+      state.scanProgress     = null;
+      state.scanStartedAt    = null;
+      state.scanPhase        = null;
+      state.scanPhaseMessage = null;
       resetStreamingCounters(state);
     },
     postProcessReceived: (state, action: PayloadAction<PostProcessPayload>) => {
@@ -227,6 +241,7 @@ export const {
   scanCompleted,
   clearStreamingSignals,
   scanFailed,
+  scanPhaseReceived,
   postProcessReceived,
   pricesBatchUpdated,
   backtestLiveReset,

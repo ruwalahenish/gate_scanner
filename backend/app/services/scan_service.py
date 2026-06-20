@@ -27,6 +27,7 @@ _executor = ThreadPoolExecutor(max_workers=_settings.scan_executor_workers)
 def _run_scan_sync(
     universe: list[str], mode: str, on_batch_sync=None,
     fundamentals_map: dict | None = None,
+    on_phase_sync=None,
 ) -> list[dict]:
     """Run the 5-stage GATE pipeline synchronously (called in thread pool)."""
     from app.core.scanner.pipeline import run_scan
@@ -34,6 +35,7 @@ def _run_scan_sync(
         universe=universe if universe else None,
         on_batch=on_batch_sync,
         fundamentals_map=fundamentals_map,
+        on_phase=on_phase_sync,
     )
 
 
@@ -96,6 +98,7 @@ async def run_scan_async(
     universe: list[str],
     mode: str = "daily",
     on_batch=None,
+    on_phase=None,
 ) -> list[dict]:
     """
     Async wrapper: runs GATE scan in thread pool, returns list of result dicts.
@@ -105,6 +108,11 @@ async def run_scan_async(
     on_batch : async coroutine callable(batch: list, done: int, total: int)
                Awaited after each batch is ranked. May perform DB writes and
                Redis publishes.  Must not raise — wrap in try/except internally.
+    on_phase : async coroutine callable(phase: str, message: str)
+               Awaited when the pipeline enters a new major phase (resolving
+               universe, fetching market data, analysing). Used to publish
+               scan.phase events so the UI can show meaningful progress text
+               instead of an indeterminate spinner.
     """
     loop = asyncio.get_event_loop()
 
@@ -112,6 +120,11 @@ async def run_scan_async(
     # If the master table is empty/unavailable, fetch the full live NSE+BSE equity
     # universe instead — never the static, index-restricted hardcoded list.
     if not universe:
+        if on_phase is not None:
+            try:
+                await on_phase("resolving_universe", "Resolving stock universe from master list…")
+            except Exception:
+                pass
         universe = await _resolve_universe_from_db(mode)
     if not universe:
         universe = await loop.run_in_executor(_executor, _fetch_full_equity_master)
@@ -129,9 +142,19 @@ async def run_scan_async(
             except Exception:
                 pass  # never let a callback error abort the pipeline
 
+    sync_phase_cb = None
+    if on_phase is not None:
+        def sync_phase_cb(phase: str, message: str):
+            future = asyncio.run_coroutine_threadsafe(on_phase(phase, message), loop)
+            try:
+                future.result(timeout=5)
+            except Exception:
+                pass
+
     fn = functools.partial(
         _run_scan_sync, universe, mode,
         on_batch_sync=sync_cb, fundamentals_map=fundamentals_map,
+        on_phase_sync=sync_phase_cb,
     )
     return await loop.run_in_executor(_executor, fn)
 

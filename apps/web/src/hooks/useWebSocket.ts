@@ -11,6 +11,7 @@ import {
   scanCompleted,
   clearStreamingSignals,
   scanFailed,
+  scanPhaseReceived,
   postProcessReceived,
   pricesBatchUpdated,
   backtestBatchScanning,
@@ -165,6 +166,13 @@ function handleMessage(
       }
       break;
     }
+
+    case "scan.phase":
+      dispatch(scanPhaseReceived({
+        phase:   msg.payload.phase   as string,
+        message: msg.payload.message as string,
+      }));
+      break;
 
     case "scan.failed":
       dispatch(scanFailed());

@@ -4,6 +4,7 @@ import type { RootState } from "./index";
 // ── Raw state selectors ──────────────────────────────────────────────────────
 
 export const selectScanProgress        = (s: RootState) => s.ws.scanProgress;
+export const selectScanPhaseMessage    = (s: RootState) => s.ws.scanPhaseMessage;
 export const selectCurrentScanId       = (s: RootState) => s.ws.currentScanId;
 export const selectWsConnected         = (s: RootState) => s.ws.connected;
 export const selectCompletionSummary   = (s: RootState) => s.ws.lastCompletionSummary;

@@ -120,6 +120,7 @@ def run_scan(
     on_batch: Optional[Callable[[list, int, int], None]] = None,
     batch_size: int = _BATCH_SIZE,
     fundamentals_map: Optional[Dict[str, dict]] = None,
+    on_phase: Optional[Callable[[str, str], None]] = None,
 ) -> List[Dict]:
     """
     Top-level scan entry point. Returns the full results list.
@@ -156,6 +157,11 @@ def run_scan(
         max_workers=workers,
     )
     logger.info("Scanning %d symbols across %s", len(scanner.universe), scanner.timeframes)
+    if on_phase:
+        try:
+            on_phase("fetching_data", f"Fetching market data for {len(scanner.universe):,} stocks…")
+        except Exception:
+            pass
     universe_data = scanner.scan()
     logger.info("  -> %d symbols passed liquidity filter", len(universe_data))
 
@@ -194,6 +200,11 @@ def run_scan(
     symbols_to_analyze = list(universe_data.items())
     total_analysis = len(symbols_to_analyze)
     print(f"\n  Analyzing {total_analysis} symbols in batches of {batch_size}...\n")
+    if on_phase:
+        try:
+            on_phase("analyzing", f"Analysing {total_analysis:,} stocks in batches…")
+        except Exception:
+            pass
 
     all_results: List[Dict] = []
     done_count = 0
@@ -234,8 +245,9 @@ def run_scan(
             + ", ".join(f"{v} {k}" for k, v in cats.items())
         )
 
-        # Fire the streaming callback so caller can persist/publish immediately
-        if on_batch and ranked_batch:
+        # Always fire the streaming callback — even for empty-signal batches —
+        # so the progress counter advances and the UI doesn't appear frozen.
+        if on_batch:
             try:
                 on_batch(ranked_batch, done_count, total_analysis)
             except Exception:

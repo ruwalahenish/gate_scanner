@@ -41,6 +41,7 @@ import {
   selectStreamingBuyCount,
   selectStreamingWatchCount,
   selectStreamingNoActCount,
+  selectScanPhaseMessage,
 } from "@/store/selectors";
 import type { AppDispatch } from "@/store";
 import type { Signal, SignalCategory, DisplayStatus } from "@/types/signal";
@@ -193,6 +194,12 @@ function useElapsedSeconds(startedAt: number | null): number {
 // Rich scan detail panel (replaces thin banner)
 // ─────────────────────────────────────────────────────────────────────────────
 
+const PHASE_LABELS: Record<string, string> = {
+  resolving_universe: "Resolving stock universe…",
+  fetching_data:      "Fetching market data…",
+  analyzing:          "Analysing stocks…",
+};
+
 const ScanDetailPanel = memo(function ScanDetailPanel({
   progress,
   streamingSignals,
@@ -202,6 +209,7 @@ const ScanDetailPanel = memo(function ScanDetailPanel({
   buyCount,
   watchCount,
   noActCount,
+  phaseMessage,
 }: {
   progress: { done: number; total: number };
   streamingSignals: StreamingSignal[];
@@ -211,6 +219,7 @@ const ScanDetailPanel = memo(function ScanDetailPanel({
   buyCount: number;
   watchCount: number;
   noActCount: number;
+  phaseMessage: string | null;
 }) {
   const elapsed  = useElapsedSeconds(scanStartedAt);
   const hasReal  = progress.total > 0;
@@ -264,7 +273,7 @@ const ScanDetailPanel = memo(function ScanDetailPanel({
             <Typography variant="caption" color="text.secondary">
               {hasReal
                 ? `${progress.done.toLocaleString()} / ${progress.total.toLocaleString()} symbols`
-                : "Initialising…"}
+                : (phaseMessage ?? "Initialising…")}
             </Typography>
             {hasReal && (
               <Typography variant="caption" fontWeight={700} color="primary.light">
@@ -416,6 +425,7 @@ export default function ScannerPage() {
   const streamingBuyCount     = useSelector(selectStreamingBuyCount);
   const streamingWatchCount   = useSelector(selectStreamingWatchCount);
   const streamingNoActCount   = useSelector(selectStreamingNoActCount);
+  const scanPhaseMessage      = useSelector(selectScanPhaseMessage);
 
   const [mainTab, setMainTab]       = useState(0);   // 0 = Signals, 1 = Watchlist
   const [activeTab, setActiveTab]   = useState<FilterTab>("ALL");
@@ -733,6 +743,7 @@ export default function ScannerPage() {
               buyCount={streamingBuyCount}
               watchCount={streamingWatchCount}
               noActCount={streamingNoActCount}
+              phaseMessage={scanPhaseMessage}
             />
           )}
           {!scanProgress && lastCompletionSummary && (

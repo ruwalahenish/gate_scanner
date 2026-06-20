@@ -107,7 +107,13 @@
       "PowerShell(cd \"d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\"; $env:NODE_OPTIONS=\"--max-old-space-size=4096\"; npx tsc --noEmit 2>&1 | Select-Object -First 50)",
       "PowerShell(cd \"d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\"; $env:NODE_OPTIONS=\"--max-old-space-size=2048\"; npx tsc --noEmit --isolatedModules 2>&1 | Select-String -Pattern \"\\(error TS|Cannot find\\)\" | Select-Object -First 30)",
       "PowerShell(cd \"d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\"; $env:NODE_OPTIONS=\"--max-old-space-size=3072\"; npx next build --experimental-turbo 2>&1 | tail -n 30)",
-      "PowerShell(cd \"d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\"; $env:NODE_OPTIONS=\"--max-old-space-size=3072\"; npx next build 2>&1 | Select-Object -Last 40)"
+      "PowerShell(cd \"d:\\\\Henish-QA\\\\mbiap\\\\gate_scanner\\\\apps\\\\web\"; $env:NODE_OPTIONS=\"--max-old-space-size=3072\"; npx next build 2>&1 | Select-Object -Last 40)",
+      "Bash(graphify query *)",
+      "Bash(graphify explain *)",
+      "PowerShell(graphify query \"scan progress websocket frontend display\")",
+      "PowerShell(Get-ChildItem -Path \"d:\\\\gate_scanner\\\\apps\\\\web\\\\app\" -Recurse | Where-Object { $_.Name -match \"scanner|scan\" -and -not $_.PSIsContainer } | Select-Object FullName)",
+      "PowerShell(Get-ChildItem -Path \"d:\\\\gate_scanner\\\\apps\\\\web\\\\app\" -Recurse | Where-Object { -not $_.PSIsContainer } | Select-Object FullName)",
+      "PowerShell(Get-ChildItem -Path \"d:\\\\gate_scanner\\\\apps\\\\web\\\\src\\\\store\" -Recurse | Where-Object { -not $_.PSIsContainer } | Select-Object FullName)"
     ],
     "additionalDirectories": [
       "\\mnt\\d\\gate-scanner",
