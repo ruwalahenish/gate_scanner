@@ -128,6 +128,29 @@ def fibonacci_levels(
     return {label: round(swing_high - ratio * diff, 4) for label, ratio in ratios.items()}
 
 
+def fibonacci_extensions(
+    base_low: float,
+    base_high: float,
+) -> Dict[str, float]:
+    """
+    Fibonacci extension levels projected upward from a consolidation base.
+
+    Anchored to the base of the move (range_low → range_high):
+      level = base_low + ratio × (base_high − base_low)
+
+    Returns levels for 1.272 (first partial), 1.618 (main target), 2.618 (extended).
+    Returns empty dict if inputs are invalid.
+    """
+    if base_high <= base_low or base_low <= 0:
+        return {}
+    height = base_high - base_low
+    return {
+        "1.272": round(base_low + 1.272 * height, 4),
+        "1.618": round(base_low + 1.618 * height, 4),
+        "2.618": round(base_low + 2.618 * height, 4),
+    }
+
+
 # -----------------------------------------------------------------------------
 # Swing points (fractal-style)
 # -----------------------------------------------------------------------------

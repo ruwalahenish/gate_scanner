@@ -58,6 +58,34 @@ def stack_state(df: pd.DataFrame) -> str:
     return "mixed"
 
 
+def ema_200_slope(df: pd.DataFrame, bars: int = 20) -> float:
+    """
+    Linear slope of EMA200 over the last `bars` candles, normalised by price.
+    Positive = rising, negative = declining, ~0 = flat.
+    Used to enforce the strategy's §17 requirement: 200 EMA must be flat-to-rising.
+    """
+    df = compute_emas(df)
+    try:
+        series = df["EMA200"].dropna()
+    except KeyError:
+        return 0.0
+    if len(series) < bars:
+        return 0.0
+    window = series.iloc[-bars:].values
+    price  = float(df["Close"].iloc[-1])
+    if price <= 0:
+        return 0.0
+    # Simple linear regression slope, normalised to price
+    x = range(len(window))
+    x_mean = (len(window) - 1) / 2
+    y_mean = sum(window) / len(window)
+    num = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, window))
+    den = sum((xi - x_mean) ** 2 for xi in x)
+    if den == 0:
+        return 0.0
+    return float(num / den / price)
+
+
 def compression_score(df: pd.DataFrame) -> float:
     """
     0 (wide) to 100 (tight).
@@ -338,6 +366,7 @@ def analyze(
     return {
         "stack": stack_state(df),
         "compression_score": compression_score(df),
+        "ema_200_slope": ema_200_slope(df),
         "correction": corr,
         "convergence": convergence_signal(df),
         "ema_values": ema_values,

@@ -163,16 +163,18 @@ def classify(
             "reasoning": f"Daily bullish, {ready} (GATE {daily_gate:.0f}), rank {rank_score:.0f} — swing buy.",
         }
 
-    pos = config.CATEGORY_RULES["POSITIONAL"]
-    if _is_bullish_tf(hourly) and hourly_gate >= pos["min_gate"] and rank_score >= pos["min_score"]:
-        return {
-            "category": "POSITIONAL",
-            "reasoning": f"1h bullish, {ready} (GATE {hourly_gate:.0f}) — positional buy.",
-        }
+    if not config.DAILY_ONLY_MODE:
+        pos = config.CATEGORY_RULES["POSITIONAL"]
+        if _is_bullish_tf(hourly) and hourly_gate >= pos["min_gate"] and rank_score >= pos["min_score"]:
+            return {
+                "category": "POSITIONAL",
+                "reasoning": f"1h bullish, {ready} (GATE {hourly_gate:.0f}) — positional buy.",
+            }
 
-    # Valid buy-zone setup but scores below the category floors → default by horizon.
+    # Valid buy-zone setup but scores below the category floors → WATCH (not POSITIONAL
+    # in daily-only mode; wait for a stronger daily/weekly confirmation).
     if _is_bullish_tf(daily):
         return {"category": "SWING",
                 "reasoning": f"Daily bullish, {ready}; rank {rank_score:.0f} below floor — swing buy."}
-    return {"category": "POSITIONAL",
-            "reasoning": f"{ready} without higher-TF confirmation — positional buy."}
+    return {"category": "WATCH",
+            "reasoning": f"{ready} without higher-TF confirmation — watching for daily breakout."}

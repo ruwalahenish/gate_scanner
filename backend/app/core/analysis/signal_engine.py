@@ -52,32 +52,34 @@ def _signal_tf(mtf_summary: Dict, mtf_data: Optional[Dict] = None) -> Optional[s
 
 def _measured_move_targets(
     entry: float,
-    breakout_level: float,
     range_high: float,
     range_low: float,
     signal_tf: str,
-    swing_high: Optional[float],
 ) -> Dict[str, float]:
     """
-    Targets anchored to the consolidation box (classic measured move):
+    Fibonacci extension targets anchored to the consolidation base (§10):
 
-      T1 = breakout_level + box_height                 (1x measured move)
-      T2 = breakout_level + 1.5x box_height  (or next swing-high resistance)
-      T3 = breakout_level + 2.0x box_height
+      T1 = range_low + 1.272 × box_height  (first partial — Fib 1.272 extension)
+      T2 = range_low + 1.618 × box_height  (main target  — Fib 1.618 extension)
+      T3 = range_low + 2.618 × box_height  (extended target)
 
-    The per-TF expectancy table is used only as an UPPER sanity bound on T3 so a
-    very tall box can't project an unrealistically far target.
+    The per-TF expectancy table is used only as an UPPER sanity bound on T3.
     """
-    height = max(range_high - range_low, 0.0)
-    t1 = breakout_level + height
-    t2 = breakout_level + config.MEASURED_MOVE_T2_MULT * height
-    t3 = breakout_level + config.MEASURED_MOVE_T3_MULT * height
+    exts = ind.fibonacci_extensions(range_low, range_high)
+    if not exts:
+        # Degenerate box — fall back to nominal multiples
+        height = max(range_high - range_low, 0.0)
+        return {
+            "T1": float(range_low + 1.272 * height),
+            "T2": float(range_low + 1.618 * height),
+            "T3": float(range_low + 2.618 * height),
+        }
 
-    # Prefer a real swing-high resistance for T2 when it sits in the projected path.
-    if swing_high and t1 < swing_high < t3:
-        t2 = swing_high
+    t1 = exts["1.272"]
+    t2 = exts["1.618"]
+    t3 = exts["2.618"]
 
-    # Upper sanity bound from TF expectancy (never the primary driver).
+    # Upper sanity bound from TF expectancy (prevents absurd targets on huge boxes).
     _, high_pct = config.TARGET_EXPECTANCY.get(signal_tf, (0.20, 0.30))
     upper_cap = entry * (1 + high_pct)
     t3 = min(t3, max(upper_cap, t2 * 1.01))
@@ -155,7 +157,6 @@ def _confidence(
     struct_q: float,
     htf_confirmed: bool,
     breakout_prob: float,
-    correction_validated: bool,
     bounce_sequence_valid: bool,
     fib_confluence: bool,
 ) -> float:
@@ -166,10 +167,12 @@ def _confidence(
         30% gate strength + 25% alignment + 20% structure quality + 25% breakout prob
 
       Adjustments (applied as multipliers after the base):
-        - fake correction (correction_validated=False): -UNVALIDATED_CORRECTION_PENALTY
-        - invalid bounce sequence:                     -INVALID_SEQUENCE_PENALTY
-        - Fibonacci confluence:                        +FIB_CONFLUENCE_BOOST
-        - HTF confirmed:                               +10%
+        - invalid bounce sequence: -INVALID_SEQUENCE_PENALTY
+        - Fibonacci confluence:    +FIB_CONFLUENCE_BOOST
+        - HTF confirmed:           +10%
+
+    Note: correction_validated is now a hard rejection in generate_signal(),
+    so it never reaches here as False.
     """
     base = (
         0.30 * gate_score_v
@@ -181,12 +184,10 @@ def _confidence(
     multiplier = 1.0
     if htf_confirmed:
         multiplier += 0.10
-    if not correction_validated:
-        multiplier -= config.UNVALIDATED_CORRECTION_PENALTY   # fake correction penalty
     if not bounce_sequence_valid:
-        multiplier -= config.INVALID_SEQUENCE_PENALTY         # skipped EMA sequence penalty
+        multiplier -= config.INVALID_SEQUENCE_PENALTY
     if fib_confluence:
-        multiplier += config.FIB_CONFLUENCE_BOOST             # Fibonacci confluence bonus
+        multiplier += config.FIB_CONFLUENCE_BOOST
 
     return float(min(100.0, max(0.0, base * multiplier)))
 
@@ -206,10 +207,9 @@ def generate_signal(
     """
     Returns a BUY trade signal dict or None if no actionable setup.
 
-    The setup is anchored to the consolidation box: a signal is emitted ONLY when
-    the latest close is in an actionable breakout state (BUY_ZONE just below the
-    breakout, or a fresh BREAKOUT_CONFIRMED) — never once price is EXTENDED, broken
-    down, still accumulating, or when no valid gate exists.
+    A signal is emitted ONLY when state == BREAKOUT_CONFIRMED (price has closed
+    above the gate top with volume). BUY_ZONE = price approaching the gate → WATCH,
+    not a buy (§6/§7). Never emits on EXTENDED, BROKEN_DOWN, ACCUMULATION, or NO_GATE.
 
     Parameters
     ----------
@@ -249,8 +249,7 @@ def generate_signal(
         return None
 
     # Require a real GATE formation: tight coil + volume dryup + accumulation.
-    # is_gate = (GATE_TF_WEIGHTS composite >= 55). A stock merely at the top of its
-    # 60-bar range (BUY_ZONE) without actual contraction has no statistical edge.
+    # is_gate = (GATE_TF_WEIGHTS composite >= 55). No contraction → no signal.
     if not bool((sig_analysis.get("gate", {}) or {}).get("is_gate", False)):
         return None
 
@@ -263,33 +262,40 @@ def generate_signal(
     if state == "BREAKOUT_CONFIRMED" and not volume_buildup:
         return None
 
-    # ---- Entry: the current close — in the BUY_ZONE this is still BELOW the
-    #      breakout, giving favorable RR before the expansion (issue #5). ----
+    # ---- Entry: current close, which is just above range_high for BREAKOUT_CONFIRMED ----
     entry = last_close
 
-    # ---- Stop Loss: structural, just below the nearest support (ATR-buffered) ----
-    # Prefer the most recent higher-low swing inside the box (a realistic breakout
-    # stop) over the full box low — on a 20% base the box low is an unrealistically
-    # wide stop, whereas the last higher-low keeps risk tight but still structural.
+    # ---- ATR ----
     atr_val = ind.atr(df_sig, 14).iloc[-1]
     if pd.isna(atr_val) or atr_val <= 0:
         return None
+
+    # ---- Breakout candle must be bigger-than-usual (§6C / §7) ----
+    # "Contraction → expansion" signature: candle range > 1.5× ATR.
+    candle_range = float(df_sig["High"].iloc[-1]) - float(df_sig["Low"].iloc[-1])
+    if candle_range < 1.5 * float(atr_val):
+        return None  # doji or narrow candle on breakout = not convincing
+
     swing = sig_analysis["structure"]["swing_levels"]
     swing_high = swing.get("last_swing_high")
-    swing_low = swing.get("last_swing_low")
-    if swing_low is not None and range_low < float(swing_low) < entry:
-        support = float(swing_low)
-    else:
-        support = range_low
-    sl = support - config.SL_ATR_BUFFER_MULT * float(atr_val)
-    if sl >= entry:
-        return None  # degenerate support vs entry
+    swing_low  = swing.get("last_swing_low")
+
+    # ---- Stop Loss: 200 EMA of the next-smaller timeframe (§8) ----
+    # For a Daily breakout SL_TIMEFRAME_MAP["1d"] = "4h" → use 4h 200 EMA.
+    sl_tf = config.SL_TIMEFRAME_MAP.get(sig_tf)
+    sl = None
+    if sl_tf and sl_tf in mtf_data and not mtf_data[sl_tf].empty:
+        ema200_sl = ind.ema(mtf_data[sl_tf], 200).iloc[-1]
+        if not pd.isna(ema200_sl) and ema200_sl > 0:
+            sl = float(ema200_sl) * (1 - 0.005)  # 0.5% buffer below the line
+    if sl is None or sl >= entry:
+        return None  # no lower-TF data or degenerate SL
     sl_distance_pct = abs(entry - sl) / entry
     if sl_distance_pct > config.MAX_SL_DISTANCE_PCT:
         return None
 
     # ---- Targets: measured move off the box ----
-    targets = _measured_move_targets(entry, breakout_level, range_high, range_low, sig_tf, swing_high)
+    targets = _measured_move_targets(entry, range_high, range_low, sig_tf)
 
     # ---- RR ratios vs the structural SL ----
     # Gate on the primary measured-move target (T2): risk to box support must be
@@ -306,6 +312,27 @@ def generate_signal(
     # ---- Quality flags ----
     sig_ema = sig_analysis["ema"]
     correction_validated = sig_ema.get("correction_validated", True)
+    if not correction_validated:
+        return None  # Check B mandatory: price must have touched 200 EMA (§2/§6B)
+
+    # ---- 200 EMA must be flat-to-rising for buys (§17) ----
+    if sig_ema.get("ema_200_slope", 0.0) < 0:
+        return None  # declining 200 EMA = macro downtrend, do not buy
+
+    # ---- Setup expiry: if price waited > SETUP_EXPIRY_BARS at the gate without
+    #      breaking out, the setup is exhausted — reject (§12) ----
+    ema200_val = (sig_ema.get("ema_values") or {}).get("EMA200")
+    if ema200_val:
+        floor = float(ema200_val) * (1 - config.EMA_TOUCH_TOLERANCE)
+        waiting = 0
+        for c in reversed(df_sig["Close"].iloc[:-1].tolist()):  # exclude today's breakout bar
+            if floor <= c < range_high:
+                waiting += 1
+            else:
+                break
+        if waiting > config.SETUP_EXPIRY_BARS:
+            return None  # setup loaded too long without breaking — expired
+
     bounce_seq_valid = sig_ema.get("bounce_sequence_valid", True)
     fib_conf = _fib_confluence(entry, swing_high, swing_low)
 
@@ -325,13 +352,12 @@ def generate_signal(
         struct_q             = sig_analysis["structure"]["structure_quality"],
         htf_confirmed        = mtf_sum["htf_confirmed"],
         breakout_prob        = breakout_readiness,
-        correction_validated = correction_validated,
         bounce_sequence_valid= bounce_seq_valid,
         fib_confluence       = fib_conf,
     )
 
     reasoning = _build_reasoning(
-        symbol, side, sig_tf, state, rng, sig_analysis, mtf_sum,
+        symbol, side, sig_tf, rng, sig_analysis, mtf_sum,
         rs_score, sector_momentum, fundamental_score, volume_buildup, fib_conf,
     )
 
@@ -339,7 +365,7 @@ def generate_signal(
         "symbol":                 symbol,
         "side":                   side,
         "signal_timeframe":       sig_tf,
-        "sl_timeframe":           sig_tf,   # SL is now structural on the signal TF
+        "sl_timeframe":           sl_tf or sig_tf,
         "trend_direction":        direction,
         "gate_strength":          gate_strength,
         "volatility_compression": sig_analysis["ema"]["compression_score"],
@@ -378,7 +404,7 @@ def generate_signal(
 
 
 def _build_reasoning(
-    symbol, side, sig_tf, state, rng, sig_analysis, mtf_sum,
+    symbol, side, sig_tf, rng, sig_analysis, mtf_sum,
     rs_score, sector_momentum, fundamental_score, volume_buildup, fib_conf,
 ) -> str:
     parts = []
@@ -386,8 +412,7 @@ def _build_reasoning(
     gate   = sig_analysis["gate"]
     struct = sig_analysis["structure"]
 
-    state_label = "in the BUY ZONE just below breakout" if state == "BUY_ZONE" \
-        else "on a fresh confirmed breakout"
+    state_label = "on a fresh confirmed breakout"
     parts.append(
         f"{symbol} {side.upper()} on {sig_tf}: price is {state_label} "
         f"(box {rng.get('range_low'):.2f}–{rng.get('range_high'):.2f}, "
@@ -414,6 +439,6 @@ def _build_reasoning(
         f"MTF alignment {mtf_sum['alignment']['alignment_pct']:.0f}% "
         f"(dominant={mtf_sum['alignment']['dominant_direction']}); "
         f"HTF confirmed={mtf_sum['htf_confirmed']}. "
-        f"SL structural below box support."
+        f"SL = lower-TF 200 EMA with 0.5% buffer (§8)."
     )
     return " ".join(parts)

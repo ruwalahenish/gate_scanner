@@ -68,8 +68,31 @@ def _atr_contraction_score(df: pd.DataFrame) -> float:
 
 
 def _ema_compression_score(df: pd.DataFrame) -> float:
-    # ema_engine returns 0-100; normalize
-    return ema_engine.compression_score(df) / 100.0
+    """
+    Percentile-rank of current EMA spread vs the stock's own rolling 100-bar history.
+    Replaces the fixed 4% threshold so high-beta stocks can score correctly (§6A:
+    "unusually close *for this stock*", not universally close).
+    Score = 1.0 when current spread is in the bottom 20th percentile of its own history.
+    """
+    df = ema_engine.compute_emas(df)
+    ema_cols = [f"EMA{p}" for p in config.EMA_PERIODS]
+    if not all(c in df.columns for c in ema_cols):
+        return 0.0
+    ema_df = df[ema_cols]
+    price   = df["Close"]
+    spread_series = (ema_df.max(axis=1) - ema_df.min(axis=1)) / price.replace(0, pd.NA)
+    spread_series = spread_series.dropna()
+    lookback = config.BB_LOOKBACK  # reuse same 100-bar window
+    if len(spread_series) < lookback:
+        return 0.0
+    window  = spread_series.iloc[-lookback:]
+    current = window.iloc[-1]
+    if pd.isna(current):
+        return 0.0
+    pct = (window < current).sum() / len(window) * 100
+    if pct <= config.BB_SQUEEZE_PERCENTILE:  # bottom 20th percentile
+        return float(1.0 - (pct / config.BB_SQUEEZE_PERCENTILE))
+    return 0.0
 
 
 def _narrow_range_score(df: pd.DataFrame) -> float:

@@ -210,9 +210,10 @@ FUNDAMENTAL_MIN_FIELDS = 2     # need >= this many metrics, else return neutral
 FUNDAMENTAL_NEUTRAL = 50.0     # score when fundamentals are unavailable/sparse
 
 # -----------------------------------------------------------------------------
-# CONSOLIDATION-RANGE / BREAKOUT-STATE MODEL  (strategy rework)
-# The "gate" is the consolidation box; a buy opportunity exists only when price
-# is APPROACHING the breakout (BUY_ZONE) or has JUST broken out — never extended.
+# CONSOLIDATION-RANGE / BREAKOUT-STATE MODEL
+# The "gate" is the consolidation box. A BUY signal is generated ONLY when price
+# has already broken out (BREAKOUT_CONFIRMED). BUY_ZONE = price approaching the
+# gate top but not yet through it → WATCH only, never actionable (§6/§7).
 # -----------------------------------------------------------------------------
 RANGE_LOOKBACK         = 60      # bars on the signal TF used to detect the box
 RANGE_MIN_DURATION     = 12      # box must persist >= this many bars to be valid
@@ -220,20 +221,25 @@ RANGE_MAX_HEIGHT_PCT   = 0.25    # box height (high-low)/low must be <= 25% (a b
 RANGE_TIGHTNESS_ATR_MULT = 2.5   # recent ATR <= box_height/this → tight coil
 
 # Breakout proximity bands (distance of close vs range_high, as a fraction)
-BUY_ZONE_MAX_PCT          = 0.04   # close within 4% BELOW range_high → BUY_ZONE (coiling)
+BUY_ZONE_MAX_PCT          = 0.04   # close within 4% BELOW range_high → BUY_ZONE (WATCH)
 BREAKOUT_CONFIRM_MAX_PCT  = 0.03   # close 0–3% ABOVE range_high → fresh BREAKOUT_CONFIRMED
-EXTENDED_PCT              = 0.03    # close > 3% above range_high → EXTENDED (already moved → reject)
-BREAKOUT_TRIGGER_BUFFER_PCT = 0.005  # anticipatory entry = range_high * (1 + this)
+EXTENDED_PCT              = 0.03   # close > 3% above range_high → EXTENDED (already moved → reject)
+BREAKOUT_TRIGGER_BUFFER_PCT = 0.005  # entry level = range_high * (1 + this), i.e. just above gate top
 
-# Breakout states considered actionable for a BUY signal
-ACTIONABLE_BREAKOUT_STATES = ("BUY_ZONE", "BREAKOUT_CONFIRMED")
+# Only BREAKOUT_CONFIRMED triggers a BUY signal. BUY_ZONE → WATCH via classifier.
+ACTIONABLE_BREAKOUT_STATES = ("BREAKOUT_CONFIRMED",)
+
+# Setup expiry: max consecutive bars price may "wait at the gate" (between EMA200
+# and range_high) before the setup is considered dead. §12 specifies 5–7 bars.
+SETUP_EXPIRY_BARS = 7
 
 # -----------------------------------------------------------------------------
-# DYNAMIC RISK (structural SL + measured-move targets)
+# FIBONACCI EXTENSION TARGETS (anchored to consolidation base, §10)
+# T = range_low + multiplier × (range_high − range_low)
 # -----------------------------------------------------------------------------
-SL_ATR_BUFFER_MULT    = 0.5     # SL = range_low - 0.5*ATR (just below box support)
-MEASURED_MOVE_T2_MULT = 1.5     # T2 = breakout_level + 1.5 x box height
-MEASURED_MOVE_T3_MULT = 2.0     # T3 = breakout_level + 2.0 x box height
+FIB_EXT_T1 = 1.272   # first partial — 1.272 extension
+FIB_EXT_T2 = 1.618   # main target   — golden ratio extension
+FIB_EXT_T3 = 2.618   # extended run
 
 # -----------------------------------------------------------------------------
 # RELATIVE STRENGTH / SECTOR MOMENTUM
@@ -267,13 +273,11 @@ CATEGORY_RULES = {
 MIN_RR_RATIO = 1.5           # minimum acceptable risk-reward at T1
 MIN_AVG_VOLUME = 100_000     # liquidity floor (20-bar avg daily volume)  (S-4)
 MIN_PRICE = 20.0             # avoid penny stocks  (S-4)
-MAX_SL_DISTANCE_PCT = 0.12   # SL no further than 12% from entry  (S-3)
+MAX_SL_DISTANCE_PCT = 0.08   # SL no further than 8% from entry for daily swing trades (§8)
 
-# Confidence penalty (0–1 subtracted from confidence multiplier) applied when
-# the correction sequence or 200 EMA touch validation fails
-UNVALIDATED_CORRECTION_PENALTY = 0.10   # 10% confidence reduction
-INVALID_SEQUENCE_PENALTY = 0.08         # 8% confidence reduction
-FIB_CONFLUENCE_BOOST = 0.08             # 8% confidence boost for Fibonacci confluence
+# Confidence adjustments applied as multipliers in _confidence()
+INVALID_SEQUENCE_PENALTY = 0.08   # -8% when EMA bounce sequence is out of order
+FIB_CONFLUENCE_BOOST     = 0.08   # +8% when entry is in the Fibonacci 0.382–0.618 zone
 
 # -----------------------------------------------------------------------------
 # STOCK UNIVERSE
@@ -323,7 +327,11 @@ BACKTEST_TIMEFRAME     = "1d"          # GATE strategy works best on daily
 
 # -----------------------------------------------------------------------------
 # DAILY TIMEFRAME STRATEGY — the entire GATE platform operates on 1d bars.
+# When True, the POSITIONAL category (1h–2h setups) is suppressed; signals that
+# would have been POSITIONAL are demoted to WATCH. §14 of the strategy document
+# lists POSITIONAL as a separate mode outside the current daily-only scope.
 # -----------------------------------------------------------------------------
+DAILY_ONLY_MODE = True
 # The entry signal is ALWAYS generated on the daily (1d) timeframe.
 # 4h bars are fetched to compute the SL (SL_TIMEFRAME_MAP["1d"] = "4h").
 # 1wk bars are fetched for HTF confirmation (direction agreement).
@@ -334,6 +342,11 @@ SCAN_TIMEFRAMES = ["4h", "1d", "1wk"]  # fetch set: SL source | entry | HTF conf
 # AUTOMATED PAPER TRADING (automation_service.py)
 # BUY-category signals above this rank trigger automatic paper trades.
 # -----------------------------------------------------------------------------
-AUTO_TRADE_MIN_RANK        = 50     # category filter (INVESTMENT/SWING/POSITIONAL) is the sole quality gate
-AUTO_TRADE_POSITION_SIZE_PCT = 0.05  # 5% of current_capital per trade
-AUTO_TRADE_MAX_POSITIONS   = 10    # max simultaneous open auto positions
+AUTO_TRADE_MIN_RANK      = 50   # minimum rank score to trigger an auto paper trade
+AUTO_TRADE_MAX_POSITIONS = 10   # max simultaneous open auto positions
+
+# §11 pyramiding prerequisite: existing position must be risk-free before a second tranche is allowed.
+# §13 circuit breaker: suspend auto-trading after a bad streak or intra-day account drawdown.
+CIRCUIT_BREAKER_CONSECUTIVE_LOSSES = 3      # suspend after N consecutive SL-hit exits
+CIRCUIT_BREAKER_DAILY_DRAWDOWN_PCT  = 0.03  # suspend when today's realized PnL ≤ −3% of account
+EVENT_SKIP_DAYS                     = 14    # skip stocks with a corporate event within this many days
