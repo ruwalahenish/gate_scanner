@@ -26,7 +26,6 @@ from __future__ import annotations
 import logging
 import time
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
@@ -150,33 +149,8 @@ def run_scan(
             all_equity=all_equity,
         )
 
-    # ---- 1) Scanner agent: universe + parallel fetch + liquidity prefilter ----
-    scanner = MarketScannerAgent(
-        universe=universe,
-        timeframes=timeframes,
-        max_workers=workers,
-    )
-    logger.info("Scanning %d symbols across %s", len(scanner.universe), scanner.timeframes)
-    if on_phase:
-        try:
-            on_phase("fetching_data", f"Fetching market data for {len(scanner.universe):,} stocks…")
-        except Exception:
-            pass
-    universe_data = scanner.scan()
-    logger.info("  -> %d symbols passed liquidity filter", len(universe_data))
-
-    # Breakdown of why symbols were dropped at the prefilter stage, e.g.
-    #   "820 no_data, 110 penny, 54 illiquid, 0 fetch_error"
-    skipped = len(scanner.universe) - len(universe_data)
-    if skipped > 0:
-        breakdown = ", ".join(
-            f"{cnt} {code}"
-            for code, cnt in scanner.skip_reasons.most_common()
-        )
-        logger.info("  -> %d symbols skipped (%s)", skipped, breakdown)
-        print(f"  -> {skipped} symbols skipped ({breakdown})")
-
-    # ---- Scan-wide context: index (RS baseline) + sector momentum, computed once ----
+    # ---- Scan-wide context: computed once before streaming starts ----
+    # These are independent of per-stock data so we compute them upfront.
     from app.core.scanner import data_fetcher
     from app.core.analysis import sector_engine
 
@@ -192,66 +166,71 @@ def run_scan(
         sector_momentum_map = {}
     fundamentals_map = fundamentals_map or {}
 
-    # ---- 2+3) MTF Analysis + Risk: parallel within batches ----
+    # ---- 1) Scanner agent ----
+    scanner = MarketScannerAgent(
+        universe=universe,
+        timeframes=timeframes,
+        max_workers=workers,
+    )
+    total = len(scanner.universe)
+    logger.info("Scanning %d symbols across %s", total, scanner.timeframes)
+
+    if on_phase:
+        try:
+            on_phase("fetching_data", f"Scanning {total:,} stocks — results stream in as each completes…")
+        except Exception:
+            pass
+
+    # ---- 2+3+4) Stream: fetch → MTF Analysis → Risk → Rank, one symbol at a time ----
+    # scanner.scan_stream() fetches in parallel (max_workers threads) and yields
+    # each symbol as soon as its data is ready, so analysis and UI updates happen
+    # immediately rather than waiting for the full universe to be fetched first.
     mtf_agent  = MTFAnalysisAgent()
     risk_agent = RiskManagementAgent()
     ranker     = SignalRankingAgent()
 
-    symbols_to_analyze = list(universe_data.items())
-    total_analysis = len(symbols_to_analyze)
-    print(f"\n  Analyzing {total_analysis} symbols in batches of {batch_size}...\n")
-    if on_phase:
-        try:
-            on_phase("analyzing", f"Analysing {total_analysis:,} stocks in batches…")
-        except Exception:
-            pass
-
     all_results: List[Dict] = []
     done_count = 0
 
-    # Split into batches; each batch is analyzed in parallel then ranked atomically
-    for batch_start in range(0, total_analysis, batch_size):
-        batch = symbols_to_analyze[batch_start : batch_start + batch_size]
-        enriched_batch: List[Dict] = []
+    for sym, mtf in scanner.scan_stream():
+        done_count += 1
 
-        with ThreadPoolExecutor(max_workers=min(workers, len(batch))) as pool:
-            future_to_sym = {
-                pool.submit(
-                    _analyze_one, sym, data, mtf_agent, risk_agent,
-                    index_df, sector_momentum_map, fundamentals_map,
-                ): sym
-                for sym, data in batch
-            }
-            for future in as_completed(future_to_sym):
-                result = future.result()
-                if result is not None:
-                    enriched_batch.append(result)
-                done_count += 1
+        if mtf is None:
+            # Symbol failed the liquidity / price filter; still fire the callback
+            # so the progress bar in the UI advances correctly.
+            if on_batch:
+                try:
+                    on_batch([], done_count, total)
+                except Exception:
+                    logger.exception("on_batch callback failed (filtered) at %d", done_count)
+            continue
 
-        # ---- 4) Rank & classify this batch ----
-        ranked_batch = ranker.rank_and_classify(enriched_batch) if enriched_batch else []
-
-        all_results.extend(ranked_batch)
-
-        cats = Counter(r["classification"]["category"] for r in ranked_batch)
-        batch_end = min(batch_start + batch_size, total_analysis)
-        logger.info(
-            "Batch %d–%d ranked: %s",
-            batch_start + 1, batch_end,
-            ", ".join(f"{v} {k}" for k, v in cats.items()),
+        result = _analyze_one(
+            sym, mtf, mtf_agent, risk_agent,
+            index_df, sector_momentum_map, fundamentals_map,
         )
-        print(
-            f"  [Batch {batch_start + 1}–{batch_end}/{total_analysis}]  "
-            + ", ".join(f"{v} {k}" for k, v in cats.items())
-        )
+        ranked = ranker.rank_and_classify([result]) if result else []
+        all_results.extend(ranked)
 
-        # Always fire the streaming callback — even for empty-signal batches —
-        # so the progress counter advances and the UI doesn't appear frozen.
+        if ranked:
+            cats = Counter(r["classification"]["category"] for r in ranked)
+            logger.info(
+                "  [%d/%d] %s  %s",
+                done_count, total, sym,
+                ", ".join(f"{v} {k}" for k, v in cats.items()),
+            )
+
         if on_batch:
             try:
-                on_batch(ranked_batch, done_count, total_analysis)
+                on_batch(ranked, done_count, total)
             except Exception:
-                logger.exception("on_batch callback failed for batch starting at %d", batch_start)
+                logger.exception("on_batch callback failed for %s", sym)
+
+    skipped_total = sum(scanner.skip_reasons.values())
+    if skipped_total:
+        breakdown = ", ".join(f"{cnt} {code}" for code, cnt in scanner.skip_reasons.most_common())
+        logger.info("  -> %d symbols skipped (%s)", skipped_total, breakdown)
+        print(f"  -> {skipped_total} symbols skipped ({breakdown})")
 
     # ---- Summary ----
     cats = Counter(r["classification"]["category"] for r in all_results)

@@ -67,6 +67,24 @@ class MarketScannerAgent(BaseAgent):
     # -------------------------------------------------------------------------
     # Parallel fetch over universe
     # -------------------------------------------------------------------------
+    def _fetch_work(self, sym: str):
+        """Fetch + liquidity-check one symbol. Returns (sym, mtf_or_None, reason_code, detail)."""
+        try:
+            mtf = self.fetch_symbol(sym)
+            daily = mtf.get("1d")
+            if daily is None or daily.empty or len(daily) < 20:
+                return sym, None, "no_data", "insufficient data"
+            last_close = float(daily["Close"].iloc[-1])
+            avg_vol = float(daily["Volume"].iloc[-20:].mean())
+            if last_close < self.min_price:
+                return sym, None, "penny", f"price ₹{last_close:.0f} < min ₹{self.min_price:.0f}"
+            if avg_vol < self.min_volume:
+                return sym, None, "illiquid", f"avg vol {avg_vol/1e5:.1f}L < min {self.min_volume/1e5:.0f}L"
+            return sym, mtf, None, f"close=₹{last_close:.2f}  avg_vol={avg_vol/1e5:.1f}L"
+        except Exception as e:
+            self._log.warning("scan failed for %s: %s", sym, e)
+            return sym, None, "fetch_error", f"fetch error: {e}"
+
     def scan(self) -> Dict[str, Dict[str, pd.DataFrame]]:
         """Returns { symbol: { tf: DataFrame } } after liquidity filter.
 
@@ -77,28 +95,9 @@ class MarketScannerAgent(BaseAgent):
         out: Dict[str, Dict[str, pd.DataFrame]] = {}
         self.skip_reasons = Counter()
         total = len(self.universe)
-
         print(f"\n  Fetching data for {total} symbols...\n")
-
-        def _work(sym):
-            try:
-                mtf = self.fetch_symbol(sym)
-                daily = mtf.get("1d")
-                if daily is None or daily.empty or len(daily) < 20:
-                    return sym, None, "no_data", "insufficient data"
-                last_close = float(daily["Close"].iloc[-1])
-                avg_vol = float(daily["Volume"].iloc[-20:].mean())
-                if last_close < self.min_price:
-                    return sym, None, "penny", f"price ₹{last_close:.0f} < min ₹{self.min_price:.0f}"
-                if avg_vol < self.min_volume:
-                    return sym, None, "illiquid", f"avg vol {avg_vol/1e5:.1f}L < min {self.min_volume/1e5:.0f}L"
-                return sym, mtf, None, f"close=₹{last_close:.2f}  avg_vol={avg_vol/1e5:.1f}L"
-            except Exception as e:
-                self._log.warning("scan failed for %s: %s", sym, e)
-                return sym, None, "fetch_error", f"fetch error: {e}"
-
         with cf.ThreadPoolExecutor(max_workers=self.max_workers) as pool:
-            futures = {pool.submit(_work, sym): sym for sym in self.universe}
+            futures = {pool.submit(self._fetch_work, sym): sym for sym in self.universe}
             for idx, fut in enumerate(cf.as_completed(futures), 1):
                 sym, mtf, reason_code, detail = fut.result()
                 status = "PASS" if mtf is not None else "SKIP"
@@ -108,3 +107,25 @@ class MarketScannerAgent(BaseAgent):
                 else:
                     self.skip_reasons[reason_code] += 1
         return out
+
+    def scan_stream(self):
+        """
+        Generator: yields ``(symbol, mtf_data_or_None)`` for every symbol as its
+        fetch completes (completion order, not universe order).
+
+        Symbols that fail the liquidity / price pre-filter are yielded with
+        ``mtf=None`` so callers can maintain an accurate global progress counter.
+        ``self.skip_reasons`` is updated as each symbol is processed.
+        """
+        self.skip_reasons = Counter()
+        total = len(self.universe)
+        print(f"\n  Scanning {total} symbols (streaming results)...\n")
+        with cf.ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+            futures = {pool.submit(self._fetch_work, sym): sym for sym in self.universe}
+            for idx, fut in enumerate(cf.as_completed(futures), 1):
+                sym, mtf, reason_code, detail = fut.result()
+                status = "PASS" if mtf is not None else "SKIP"
+                print(f"  [Scan {idx:3d}/{total}] {sym:<22}  {status:<4}  {detail}")
+                if mtf is None:
+                    self.skip_reasons[reason_code] += 1
+                yield sym, mtf

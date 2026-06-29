@@ -485,6 +485,9 @@ export default function ScannerPage() {
   }, [currentScanId, scans, stopScan, dispatch]);
 
   const handleRunScan = useCallback(async () => {
+    // Clear previous results immediately so the table is blank before the API
+    // call even returns — no flash of stale data while the request is in-flight.
+    dispatch(scanStarted(undefined));
     try {
       const { scan_id } = await triggerScan({ mode: SCAN_MODE }).unwrap();
       dispatch(scanStarted(scan_id));
@@ -500,6 +503,7 @@ export default function ScannerPage() {
         }
       } else {
         console.error("Scan failed to start", err);
+        dispatch(scanFailed());
       }
     }
   }, [triggerScan, scans, dispatch]);

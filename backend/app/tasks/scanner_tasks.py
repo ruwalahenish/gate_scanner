@@ -99,19 +99,7 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
             except Exception as e:
                 log.warning("batch_insert_failed", scan_id=scan_id, error=str(e))
 
-        # Serialize signals for WebSocket (strip bulky ohlcv DataFrames)
-        ws_signals = _serialize_batch_for_ws(batch)
-
-        await _publish("scan:batch", {
-            "type": "scan.batch",
-            "payload": {
-                "scan_id": scan_id,
-                "done": done,
-                "total": total,
-                "signals": ws_signals,
-            },
-            "timestamp": _now(),
-        })
+        # Always publish lightweight progress update (drives the progress bar).
         await _publish("scan:progress", {
             "type": "scan.progress",
             "payload": {
@@ -121,6 +109,21 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
             },
             "timestamp": _now(),
         })
+
+        # Only publish scan.batch when there are actual signals so the frontend
+        # table update (Redux dispatch + re-render) only fires for real results.
+        ws_signals = _serialize_batch_for_ws(batch)
+        if ws_signals:
+            await _publish("scan:batch", {
+                "type": "scan.batch",
+                "payload": {
+                    "scan_id": scan_id,
+                    "done": done,
+                    "total": total,
+                    "signals": ws_signals,
+                },
+                "timestamp": _now(),
+            })
 
     async def on_phase(phase: str, message: str):
         """Called when the pipeline enters a new major phase — broadcast so the UI can show it."""
