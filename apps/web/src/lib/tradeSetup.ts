@@ -2,7 +2,7 @@
  * tradeSetup.ts
  * =============
  * Single source of truth for the "trade setup" view-model rendered by
- * TradeSetupPanel across the scanner table, stock detail page, and watchlist.
+ * TradeSetupPanel across the scanner table and stock detail page.
  *
  * Resolves the two payload shapes the backend emits:
  *   - Stored/streaming SIGNAL: lowercase keys (t1/t2/t3, rr_t1/rr_t2/rr_t3, stop_loss)
@@ -16,7 +16,6 @@
  */
 import type { Signal, SignalCategory, SignalSide } from "@/types/signal";
 import type { Stock } from "@/types/stock";
-import type { WatchlistItem } from "@/types/watchlist";
 
 export type SetupProvenance = "confirmed" | "anticipated" | "none";
 
@@ -212,42 +211,6 @@ export function fromLiveAnalysis(
     displayCategory: null,
     // Live analysis on a WATCH stock = provisional/anticipated; callers may override.
     provenance: opts?.provenance ?? (entry != null ? "anticipated" : "none"),
-    hasLevels: entry != null,
-  };
-}
-
-/** Build a partial setup from a watchlist row (only entry/SL/T1/gate/rank stored). */
-export function fromWatchlistItem(item: WatchlistItem): TradeSetup {
-  const entry = num(item.entry);
-  return {
-    symbol: item.symbol,
-    side: null,
-    entry,
-    stopLoss: num(item.stop_loss),
-    targets: { t1: num(item.t1), t2: null, t3: null },
-    rr: { t1: null, t2: null, t3: null },
-    breakoutLevel: null,
-    rangeHigh: null,
-    rangeLow: null,
-    breakoutState: null,
-    slDistancePct: null,
-    atr: null,
-    gateStrength: num(item.gate_strength),
-    confidence: null,
-    rankScore: num(item.rank_score),
-    structureQuality: null,
-    mtfAlignmentPct: null,
-    breakoutProbability: null,
-    volatilityCompression: null,
-    flags: { ...EMPTY_FLAGS },
-    signalTimeframe: null,
-    slTimeframe: null,
-    trendDirection: null,
-    phase: null,
-    reasoning: null,
-    category: "WATCH",
-    displayCategory: "Watch",
-    provenance: "anticipated",
     hasLevels: entry != null,
   };
 }

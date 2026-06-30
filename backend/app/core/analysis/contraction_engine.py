@@ -64,7 +64,7 @@ def _volume_pattern(df: "pd.DataFrame") -> Tuple[float, bool]:
         else short_avg
     )
     buildup_ratio = recent_avg / base_avg if base_avg > 0 else 1.0
-    buildup_flag = buildup_ratio >= 1.3
+    buildup_flag = buildup_ratio >= 1.15  # 15% pickup is sufficient; 1.3 was too strict
     buildup_score = max(0.0, min(1.0, (buildup_ratio - 1.0) / 0.5))
 
     score = 100.0 * (0.5 * dryup_score + 0.5 * buildup_score)
@@ -260,7 +260,7 @@ def gate_score(df: pd.DataFrame) -> Dict:
         "score": float(score),
         "components": {**contraction["components"], **tf_components},
         "consolidation_strength": contraction["score"],
-        "is_gate": score >= 55.0,
+        "is_gate": score >= 45.0,  # 55 was too strict; 45 allows mild contractions with strong breakout proximity
         "direction_bias": bias,
         "range": rng,
         "volume_buildup": bool(buildup),

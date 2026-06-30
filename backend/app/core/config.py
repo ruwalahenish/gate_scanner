@@ -184,7 +184,10 @@ RANK_WEIGHTS = {
 # has already broken out (BREAKOUT_CONFIRMED). BUY_ZONE = price approaching the
 # gate top but not yet through it → WATCH only, never actionable (§6/§7).
 # -----------------------------------------------------------------------------
-RANGE_LOOKBACK         = 60      # bars on the signal TF used to detect the box
+RANGE_LOOKBACK         = 60      # bars on the signal TF used to detect the box (primary)
+RANGE_LOOKBACK_FALLBACKS = [40, 30]  # shorter windows tried when primary box is too tall;
+                                     # lets the detector find a base at EMA200 even when the
+                                     # prior correction leg is still inside the 60-bar window
 RANGE_MIN_DURATION     = 12      # box must persist >= this many bars to be valid
 RANGE_MAX_HEIGHT_PCT   = 0.25    # box height (high-low)/low must be <= 25% (a base, not a trend leg)
 RANGE_TIGHTNESS_ATR_MULT = 2.5   # recent ATR <= box_height/this → tight coil
@@ -232,7 +235,17 @@ CATEGORY_RULES = {
 MIN_RR_RATIO = 1.5           # minimum acceptable risk-reward at T1
 MIN_AVG_VOLUME = 100_000     # liquidity floor (20-bar avg daily volume)  (S-4)
 MIN_PRICE = 20.0             # avoid penny stocks  (S-4)
-MAX_SL_DISTANCE_PCT = 0.08   # SL no further than 8% from entry for daily swing trades (§8)
+MAX_SL_DISTANCE_PCT = 0.10   # SL no further than 10% from entry for daily swing trades (§8)
+
+# GATE position requirement: the GATE squeeze forms AT the 200 EMA (§1–§3).
+# Price must be within this fraction below EMA200 for a valid GATE signal or WATCH.
+# Stocks more than GATE_PRICE_MIN_EMA200 below EMA200 are in a bear breakdown, not
+# a correction-to-EMA200 setup.
+GATE_PRICE_MIN_EMA200 = 0.05   # allow up to 5% below EMA200 (EMA cluster spans EMA200)
+# Upper bound: the consolidation box floor must not be more than this fraction ABOVE EMA200.
+# If range_low > EMA200 × (1 + this), the stock has already broken out and extended well above
+# EMA200 — the tight coil we detect is a post-breakout base, not a correction-to-EMA200 GATE.
+GATE_RANGE_MAX_ABOVE_EMA200 = 0.10   # range_low must be ≤ EMA200 × 1.10
 
 # Confidence adjustments applied as multipliers in _confidence()
 INVALID_SEQUENCE_PENALTY = 0.08   # -8% when EMA bounce sequence is out of order

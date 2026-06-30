@@ -4,7 +4,7 @@ import {
   Divider, LinearProgress, Stack, CircularProgress,
 } from "@mui/material";
 import {
-  TrendingUp, Visibility, SwapHoriz, EmojiEvents,
+  TrendingUp, SwapHoriz, EmojiEvents,
   CheckCircleOutline, ErrorOutline, AccessTime,
 } from "@mui/icons-material";
 import { useSelector } from "react-redux";
@@ -210,36 +210,6 @@ const RecentTradesSection = memo(function RecentTradesSection({ items }: { items
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Section: Watchlist mini-panel
-// ─────────────────────────────────────────────────────────────────────────────
-
-const WatchlistPanel = memo(function WatchlistPanel({ wl }: { wl: DashboardData["watchlist"] }) {
-  const rows: { label: string; value: number; color?: string }[] = [
-    { label: "Watching",       value: wl.active,        color: STATUS_COLORS.WATCH },
-    { label: "Buy Triggered",  value: wl.buy_triggered, color: STATUS_COLORS.INVESTMENT },
-    { label: "Target Hit",     value: wl.target_hit,    color: STATUS_COLORS.POSITIONAL },
-    { label: "Stop Loss Hit",  value: wl.sl_hit,        color: "error.main" },
-    { label: "Closed",         value: wl.closed,        color: STATUS_COLORS.IGNORE },
-  ];
-
-  return (
-    <Stack spacing={0.6}>
-      <Typography variant="caption" color="text.secondary" fontWeight={600} mb={0.3}>
-        WATCHLIST — {wl.total} total
-      </Typography>
-      {rows.map(({ label, value, color }) => (
-        <Box key={label} display="flex" justifyContent="space-between" alignItems="center">
-          <Typography variant="caption" color="text.secondary">{label}</Typography>
-          <Typography variant="caption" fontWeight={600} sx={{ color: color ?? "text.primary" }}>
-            {value}
-          </Typography>
-        </Box>
-      ))}
-    </Stack>
-  );
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Section: Paper Trading P&L mini-panel
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -352,13 +322,11 @@ export default function DashboardPage() {
   ) : null;
 
   // ── Post-process notification ──────────────────────────────────────────
-  const PostProcessBanner = lastProcess && !scanProgress && (
-    lastProcess.watch_added > 0 || lastProcess.trades_created > 0
-  ) ? (
+  const PostProcessBanner = lastProcess && !scanProgress && lastProcess.trades_created > 0 ? (
     <Card sx={{ mb: 2, bgcolor: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.15)" }}>
       <CardContent sx={{ py: 1, "&:last-child": { pb: 1 } }}>
         <Typography variant="caption" color="success.light">
-          Last scan: {lastProcess.watch_added} added to watchlist · {lastProcess.trades_created} paper trade{lastProcess.trades_created !== 1 ? "s" : ""} created automatically
+          Last scan: {lastProcess.trades_created} paper trade{lastProcess.trades_created !== 1 ? "s" : ""} created automatically
         </Typography>
       </CardContent>
     </Card>
@@ -401,7 +369,7 @@ export default function DashboardPage() {
 
   if (!data) return null;
 
-  const { scanner, watchlist, paper_trading, backtesting, recent_opportunities, recent_trades, system_health } = data;
+  const { scanner, paper_trading, backtesting, recent_opportunities, recent_trades, system_health } = data;
 
   // ── No scan yet — onboarding state ────────────────────────────────────
   if (!scanner.last_scan_at) {
@@ -413,7 +381,7 @@ export default function DashboardPage() {
           <EmptyState
             icon={<TrendingUp />}
             title="Run your first GATE scan"
-            description="The dashboard will populate with signals, watchlist entries, and paper trades after your first scan completes."
+            description="The dashboard will populate with signals and paper trades after your first scan completes."
           />
         </Card>
       </Box>
@@ -450,15 +418,6 @@ export default function DashboardPage() {
             subtitle={`${scanner.watch_count} watching`}
             icon={<TrendingUp />}
             color={STATUS_COLORS.INVESTMENT}
-          />
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <StatCard
-            label="Watchlist"
-            value={watchlist.total}
-            subtitle={`${watchlist.active} active`}
-            icon={<Visibility />}
-            color={STATUS_COLORS.WATCH}
           />
         </Grid>
         <Grid item xs={6} sm={3}>
@@ -521,18 +480,9 @@ export default function DashboardPage() {
         </Grid>
       </Grid>
 
-      {/* ── Bottom row: watchlist + P&L + health ─────────────────────────── */}
+      {/* ── Bottom row: P&L + health ─────────────────────────────────────── */}
       <Grid container spacing={2}>
-        <Grid item xs={12} sm={4}>
-          <ErrorBoundary>
-            <Card sx={{ height: "100%" }}>
-              <CardContent>
-                <WatchlistPanel wl={watchlist} />
-              </CardContent>
-            </Card>
-          </ErrorBoundary>
-        </Grid>
-        <Grid item xs={12} sm={4}>
+        <Grid item xs={12} sm={6}>
           <ErrorBoundary>
             <Card sx={{ height: "100%" }}>
               <CardContent>
@@ -541,7 +491,7 @@ export default function DashboardPage() {
             </Card>
           </ErrorBoundary>
         </Grid>
-        <Grid item xs={12} sm={4}>
+        <Grid item xs={12} sm={6}>
           <ErrorBoundary>
             <Card sx={{ height: "100%" }}>
               <CardContent>

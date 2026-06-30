@@ -210,7 +210,11 @@ def generate_signal(
         return None
 
     direction = mtf_sum["alignment"]["dominant_direction"]
-    if direction != "up":  # bigger-picture must be bullish
+    # Allow neutral overall alignment if the signal TF itself is bullish.
+    # This handles the case where 4h is bearish and 1wk is neutral, tying the vote
+    # at 1 up / 1 down / 1 neutral = "neutral", even though the daily is clearly up.
+    sig_tf_dir = (mtf_sum.get("per_tf_direction") or {}).get(sig_tf, "neutral")
+    if direction != "up" and sig_tf_dir != "up":
         return None
     side = "BUY"
 
@@ -229,7 +233,7 @@ def generate_signal(
         return None
 
     # Require a real GATE formation: tight coil + volume dryup + accumulation.
-    # is_gate = (GATE_TF_WEIGHTS composite >= 55). No contraction → no signal.
+    # is_gate = (GATE_TF_WEIGHTS composite >= 45). No contraction → no signal.
     if not bool((sig_analysis.get("gate", {}) or {}).get("is_gate", False)):
         return None
 
@@ -245,15 +249,32 @@ def generate_signal(
     # ---- Entry: current close, which is just above range_high for BREAKOUT_CONFIRMED ----
     entry = last_close
 
+    # ---- §3 hard condition: GATE forms AT the 200 EMA ----
+    # Price must be at or near EMA200 on the signal TF. A stock trading more than
+    # GATE_PRICE_MIN_EMA200 below EMA200 is in a bear-market breakdown, not a
+    # correction-to-EMA200 GATE setup. The EMA cluster spans the EMA200 level so a
+    # small buffer (5%) is allowed for fresh breakouts from the cluster bottom.
+    _ema_vals = (sig_analysis.get("ema") or {}).get("ema_values") or {}
+    _ema200 = float(_ema_vals.get("EMA200") or 0)
+    if _ema200 > 0 and entry < _ema200 * (1 - config.GATE_PRICE_MIN_EMA200):
+        return None
+    # Upper-bound: if the entire consolidation box is more than GATE_RANGE_MAX_ABOVE_EMA200
+    # above EMA200, the stock has extended well past its correction-to-EMA200 phase and is
+    # now forming a post-breakout base at a much higher level — not a GATE entry.
+    if _ema200 > 0 and range_low > _ema200 * (1 + config.GATE_RANGE_MAX_ABOVE_EMA200):
+        return None
+
     # ---- ATR ----
     atr_val = ind.atr(df_sig, 14).iloc[-1]
     if pd.isna(atr_val) or atr_val <= 0:
         return None
 
     # ---- Breakout candle must be bigger-than-usual (§6C / §7) ----
-    # "Contraction → expansion" signature: candle range > 1.5× ATR.
+    # "Contraction → expansion" signature: candle range > 1.2× ATR.
+    # 1.5 was too strict — quiet breakouts on low-volatility stocks were filtered
+    # even when all other GATE conditions were met; 1.2× still excludes dojis/pins.
     candle_range = float(df_sig["High"].iloc[-1]) - float(df_sig["Low"].iloc[-1])
-    if candle_range < 1.5 * float(atr_val):
+    if candle_range < 1.2 * float(atr_val):
         return None  # doji or narrow candle on breakout = not convincing
 
     swing = sig_analysis["structure"]["swing_levels"]

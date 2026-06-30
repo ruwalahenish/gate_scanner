@@ -44,14 +44,6 @@ export interface DashboardData {
     watch_count: number;
     no_action_count: number;
   };
-  watchlist: {
-    total: number;
-    active: number;
-    buy_triggered: number;
-    target_hit: number;
-    sl_hit: number;
-    closed: number;
-  };
   paper_trading: {
     open_positions: number;
     total_trades: number;

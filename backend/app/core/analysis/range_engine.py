@@ -28,42 +28,29 @@ from app.core import config
 from app.core.analysis import indicators as ind
 
 
-def detect_consolidation(df: pd.DataFrame, lookback: Optional[int] = None) -> Dict:
-    """
-    Detect the consolidation box over the trailing `lookback` bars.
-
-    Returns a dict with range_high, range_low, height_pct, duration_bars,
-    tightness (0–1, higher = tighter coil) and `valid`.
-    """
-    lookback = lookback or config.RANGE_LOOKBACK
+def _try_window(df: pd.DataFrame, lb: int) -> Dict:
+    """Attempt to detect a consolidation box over the last `lb` bars."""
     invalid = {
         "range_high": None, "range_low": None, "height_pct": None,
         "duration_bars": 0, "tightness": 0.0, "valid": False,
     }
-    if df is None or df.empty or len(df) < max(lookback, config.RANGE_MIN_DURATION):
+    if len(df) < max(lb, config.RANGE_MIN_DURATION):
         return invalid
-
-    window = df.iloc[-lookback:]
+    window = df.iloc[-lb:]
     range_high = float(window["High"].max())
     range_low = float(window["Low"].min())
     if range_low <= 0 or range_high <= range_low:
         return invalid
-
     height_pct = (range_high - range_low) / range_low
     if height_pct > config.RANGE_MAX_HEIGHT_PCT:
-        return invalid  # too tall to be a base — this is a trend leg, not a gate
-
-    # Tightness: recent ATR small relative to the box height = a tight coil.
+        return invalid
     atr_series = ind.atr(df, 14)
     last_atr = atr_series.iloc[-1] if not atr_series.dropna().empty else None
     box_abs = range_high - range_low
-    if last_atr is None or pd.isna(last_atr) or box_abs <= 0:
-        tightness = 0.0
-    else:
-        # atr <= box/RANGE_TIGHTNESS_ATR_MULT → fully tight (1.0)
+    tightness = 0.0
+    if last_atr is not None and not pd.isna(last_atr) and box_abs > 0 and last_atr > 0:
         ref = box_abs / config.RANGE_TIGHTNESS_ATR_MULT
-        tightness = float(max(0.0, min(1.0, ref / float(last_atr)))) if last_atr > 0 else 0.0
-
+        tightness = float(max(0.0, min(1.0, ref / float(last_atr))))
     return {
         "range_high": range_high,
         "range_low": range_low,
@@ -71,6 +58,34 @@ def detect_consolidation(df: pd.DataFrame, lookback: Optional[int] = None) -> Di
         "duration_bars": int(len(window)),
         "tightness": tightness,
         "valid": True,
+    }
+
+
+def detect_consolidation(df: pd.DataFrame, lookback: Optional[int] = None) -> Dict:
+    """
+    Detect the consolidation box over the trailing bars.
+
+    Tries the primary `lookback` first, then progressively shorter windows
+    (RANGE_LOOKBACK_FALLBACKS). This allows the detector to find a recent tight
+    base at EMA200 even when a prior correction leg is still inside the primary
+    window (which would otherwise inflate the box height above RANGE_MAX_HEIGHT_PCT
+    and cause the base to be missed entirely).
+    """
+    if df is None or df.empty:
+        return {
+            "range_high": None, "range_low": None, "height_pct": None,
+            "duration_bars": 0, "tightness": 0.0, "valid": False,
+        }
+    primary = lookback or config.RANGE_LOOKBACK
+    for lb in [primary] + list(config.RANGE_LOOKBACK_FALLBACKS):
+        if lb < config.RANGE_MIN_DURATION:
+            continue
+        result = _try_window(df, lb)
+        if result["valid"]:
+            return result
+    return {
+        "range_high": None, "range_low": None, "height_pct": None,
+        "duration_bars": 0, "tightness": 0.0, "valid": False,
     }
 
 

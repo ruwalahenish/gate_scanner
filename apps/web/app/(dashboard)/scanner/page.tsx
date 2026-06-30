@@ -7,12 +7,10 @@ import {
 } from "@mui/material";
 import {
   PlayArrow, Schedule, CheckCircleOutline,
-  TrendingUp, Visibility, DoNotDisturbAlt, Star, BarChart,
+  TrendingUp, Visibility, DoNotDisturbAlt, BarChart,
 } from "@mui/icons-material";
-import { WatchlistPanel } from "@/components/domain/WatchlistPanel";
 import { PaperTradingPanel } from "@/components/domain/PaperTradingPanel";
 import { BacktestPanel } from "@/components/domain/BacktestPanel";
-import { useGetWatchlistQuery } from "@/store/api/watchlistApi";
 import { useGetPositionsQuery } from "@/store/api/paperTradingApi";
 import { useSelector, useDispatch } from "react-redux";
 import { SignalTable } from "@/components/domain/SignalTable";
@@ -426,13 +424,9 @@ export default function ScannerPage() {
   const streamingNoActCount   = useSelector(selectStreamingNoActCount);
   const scanPhaseMessage      = useSelector(selectScanPhaseMessage);
 
-  const [mainTab, setMainTab]       = useState(0);   // 0 = Signals, 1 = Watchlist
+  const [mainTab, setMainTab]       = useState(0);   // 0 = Signals, 1 = Paper Trading, 2 = Backtest
   const [activeTab, setActiveTab]   = useState<FilterTab>("ALL");
   const [page, setPage]             = useState(1);
-
-  // Watchlist count for badge — RTK Query deduplicates the request with WatchlistPanel
-  const { data: watchlistItems } = useGetWatchlistQuery({});
-  const watchlistActiveCount = (watchlistItems ?? []).filter((i) => i.status === "active").length;
 
   // Paper Trading open positions count for badge
   const { data: openPositions } = useGetPositionsQuery();
@@ -650,7 +644,7 @@ export default function ScannerPage() {
         )}
       </Box>
 
-      {/* ── Main section tabs: Signals | Watchlist | Paper Trading | Backtest ── */}
+      {/* ── Main section tabs: Signals | Paper Trading | Backtest ── */}
       <Box sx={{ borderBottom: "1px solid rgba(255,255,255,0.08)", mb: 2 }}>
         <Tabs
           value={mainTab}
@@ -668,27 +662,6 @@ export default function ScannerPage() {
           <Tab
             label={
               <Box display="flex" alignItems="center" gap={0.7}>
-                <Star sx={{ fontSize: 14 }} />
-                <span>Watchlist</span>
-                {watchlistActiveCount > 0 && (
-                  <Chip
-                    label={watchlistActiveCount}
-                    size="small"
-                    sx={{
-                      height: 17,
-                      fontSize: "0.62rem",
-                      bgcolor: mainTab === 1 ? "rgba(234,179,8,0.25)" : "rgba(255,255,255,0.06)",
-                      color: mainTab === 1 ? "#eab308" : "text.secondary",
-                      fontWeight: 600,
-                    }}
-                  />
-                )}
-              </Box>
-            }
-          />
-          <Tab
-            label={
-              <Box display="flex" alignItems="center" gap={0.7}>
                 <TrendingUp sx={{ fontSize: 14 }} />
                 <span>Paper Trading</span>
                 {openPositionsCount > 0 && (
@@ -698,8 +671,8 @@ export default function ScannerPage() {
                     sx={{
                       height: 17,
                       fontSize: "0.62rem",
-                      bgcolor: mainTab === 2 ? "rgba(34,197,94,0.25)" : "rgba(255,255,255,0.06)",
-                      color: mainTab === 2 ? "success.main" : "text.secondary",
+                      bgcolor: mainTab === 1 ? "rgba(34,197,94,0.25)" : "rgba(255,255,255,0.06)",
+                      color: mainTab === 1 ? "success.main" : "text.secondary",
                       fontWeight: 600,
                     }}
                   />
@@ -865,23 +838,11 @@ export default function ScannerPage() {
         </>
       )}
 
-      {/* ── Watchlist tab ────────────────────────────────────────────────── */}
-      {mainTab === 1 && (
-        <Box>
-          <Box display="flex" alignItems="baseline" gap={1} mb={1.5}>
-            <Typography variant="body2" color="text.secondary">
-              {watchlistItems?.length ?? 0} stocks · auto-managed by GATE Scanner
-            </Typography>
-          </Box>
-          <WatchlistPanel />
-        </Box>
-      )}
-
       {/* ── Paper Trading tab ─────────────────────────────────────────────── */}
-      {mainTab === 2 && <PaperTradingPanel />}
+      {mainTab === 1 && <PaperTradingPanel />}
 
       {/* ── Backtest tab ──────────────────────────────────────────────────── */}
-      {mainTab === 3 && <BacktestPanel />}
+      {mainTab === 2 && <BacktestPanel />}
     </Box>
   );
 }

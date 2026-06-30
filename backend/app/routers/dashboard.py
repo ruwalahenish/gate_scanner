@@ -129,22 +129,6 @@ async def _build(conn: asyncpg.Connection, redis: aioredis.Redis) -> dict:
         )
         recent_opportunities = [enrich_signal_display(serialize_row(r)) for r in opp_rows]
 
-    # ── Watchlist ──────────────────────────────────────────────────────────
-    wl_counts = await conn.fetchrow(
-        """SELECT
-             COUNT(*)                                           AS total,
-             COUNT(*) FILTER (WHERE status='active')           AS active,
-             COUNT(*) FILTER (WHERE status='buy_triggered')    AS buy_triggered,
-             COUNT(*) FILTER (WHERE status='target_hit')       AS target_hit,
-             COUNT(*) FILTER (WHERE status='sl_hit')           AS sl_hit,
-             COUNT(*) FILTER (WHERE status='closed')           AS closed
-           FROM watchlist"""
-    )
-    watchlist_stats = dict(wl_counts) if wl_counts else {
-        "total": 0, "active": 0, "buy_triggered": 0,
-        "target_hit": 0, "sl_hit": 0, "closed": 0,
-    }
-
     # ── Paper trading ──────────────────────────────────────────────────────
     pt_config = await conn.fetchrow("SELECT * FROM portfolio_config LIMIT 1")
     pt_trade_stats = await conn.fetchrow(
@@ -225,7 +209,6 @@ async def _build(conn: asyncpg.Connection, redis: aioredis.Redis) -> dict:
 
     return {
         "scanner":               scanner_stats,
-        "watchlist":             watchlist_stats,
         "paper_trading":         paper_trading_stats,
         "backtesting":           backtesting_stats,
         "recent_opportunities":  recent_opportunities,
@@ -243,10 +226,6 @@ def _empty_dashboard() -> dict:
         "scanner": {
             "last_scan_at": None, "last_scan_duration_sec": None,
             "total_signals": 0, "buy_count": 0, "watch_count": 0, "no_action_count": 0,
-        },
-        "watchlist": {
-            "total": 0, "active": 0, "buy_triggered": 0,
-            "target_hit": 0, "sl_hit": 0, "closed": 0,
         },
         "paper_trading": {
             "open_positions": 0, "total_trades": 0, "winning_trades": 0,

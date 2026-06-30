@@ -23,7 +23,6 @@ interface SignalLevels {
   t1?: number | null;
   t2?: number | null;
   t3?: number | null;
-  /** Critical breakout trigger — the level price must clear (drawn as a solid line). */
   breakout_level?: number | null;
 }
 
@@ -32,30 +31,82 @@ interface GATEChartProps {
   signal?: SignalLevels | null;
   height?: number;
   loading?: boolean;
-  /** Compact mode for small/mobile/embedded charts: shorter labels, slimmer lines. */
   compact?: boolean;
 }
 
+// ── EMA overlays ─────────────────────────────────────────────────────────────
 const EMA_CONFIG = [
-  { key: "ema20" as const,  color: "#6366f1", width: 1 },
-  { key: "ema50" as const,  color: "#8b5cf6", width: 1 },
+  { key: "ema20"  as const, color: "#6366f1", width: 1 },
+  { key: "ema50"  as const, color: "#8b5cf6", width: 1 },
   { key: "ema100" as const, color: "#a78bfa", width: 1 },
   { key: "ema200" as const, color: "#c4b5fd", width: 2 },
 ];
 
-// Labeled horizontal price lines drawn directly on the candlestick series.
-// Entry is the most prominent (solid, thick, brand indigo); SL red; targets green.
-const LEVEL_CONFIG = [
-  // Critical breakout trigger — solid, prominent gold line (the level to clear).
+// ── Signal price lines (near current price — always within the candle range) ─
+const PRICE_LINE_CONFIG = [
   { key: "breakout_level" as const, color: "#eab308", dash: false, width: 2, label: "Breakout" },
-  { key: "entry" as const,     color: "#6366f1", dash: false, width: 3, label: "Entry" },
-  { key: "stop_loss" as const, color: "#ef4444", dash: true,  width: 2, label: "SL"    },
-  { key: "t1" as const,        color: "#4ade80", dash: true,  width: 1, label: "T1"     },
-  { key: "t2" as const,        color: "#22c55e", dash: true,  width: 1, label: "T2"     },
-  { key: "t3" as const,        color: "#16a34a", dash: true,  width: 1, label: "T3"     },
+  { key: "entry"          as const, color: "#6366f1", dash: false, width: 3, label: "Entry"    },
+  { key: "stop_loss"      as const, color: "#ef4444", dash: false, width: 2, label: "SL"       },
 ];
 
-export function GATEChart({ bars, signal, height = 480, loading = false, compact = false }: GATEChartProps) {
+// ── Fibonacci extension targets (signal-conditional, LineSeries for autoscale) ─
+const FIB_EXT_CONFIG = [
+  { key: "t1" as const, color: "#4ade80", width: 3, label: "T1", ratio: "1.272×" },
+  { key: "t2" as const, color: "#facc15", width: 3, label: "T2", ratio: "1.618×" },
+  { key: "t3" as const, color: "#f97316", width: 3, label: "T3", ratio: "2.618×" },
+];
+
+// ── Standard Fibonacci retracement levels (always visible, every status) ─────
+// Drawn from the auto-detected swing high → swing low of the visible bar range.
+const FIB_RETR_LEVELS = [
+  { ratio: 0.000, label: "0%",    color: "#64748b" },
+  { ratio: 0.236, label: "23.6%", color: "#fbbf24" },
+  { ratio: 0.382, label: "38.2%", color: "#fb923c" },
+  { ratio: 0.500, label: "50%",   color: "#f87171" },
+  { ratio: 0.618, label: "61.8%", color: "#c084fc" },
+  { ratio: 0.786, label: "78.6%", color: "#818cf8" },
+  { ratio: 1.000, label: "100%",  color: "#64748b" },
+];
+
+/**
+ * Auto-detect the most recent significant swing high and the subsequent low
+ * from the bar data so Fibonacci retracement lines can be computed without
+ * needing a backend signal.
+ *
+ * Strategy:
+ *   1. Take the last 150 bars (or fewer if less data available).
+ *   2. Swing high = the bar with the highest `high` in that window.
+ *   3. Swing low  = the bar with the lowest `low` AFTER the swing-high bar.
+ *   4. Require at least an 8% range (high − low) / high to filter noise.
+ */
+function detectFibSwing(bars: Bar[]): { high: number; low: number } | null {
+  if (bars.length < 20) return null;
+  const lb = bars.slice(-150);
+
+  let swingHigh = 0;
+  let swingHighIdx = 0;
+  lb.forEach((b, i) => {
+    if (b.high > swingHigh) { swingHigh = b.high; swingHighIdx = i; }
+  });
+
+  let swingLow = Infinity;
+  for (let i = swingHighIdx; i < lb.length; i++) {
+    if (lb[i].low < swingLow) swingLow = lb[i].low;
+  }
+
+  if (!isFinite(swingLow) || swingLow >= swingHigh) return null;
+  if ((swingHigh - swingLow) / swingHigh < 0.08) return null; // < 8% swing → skip
+
+  return { high: swingHigh, low: swingLow };
+}
+
+export function GATEChart({
+  bars,
+  signal,
+  height = 480,
+  loading = false,
+  compact = false,
+}: GATEChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
 
@@ -64,9 +115,6 @@ export function GATEChart({ bars, signal, height = 480, loading = false, compact
 
     let chart: IChartApi;
 
-    // Dynamic import to avoid SSR issues
-    // lightweight-charts v5 uses chart.addSeries(SeriesType, options) instead of
-    // chart.addCandlestickSeries() / chart.addLineSeries()
     import("lightweight-charts").then((lw) => {
       if (!containerRef.current) return;
 
@@ -94,54 +142,100 @@ export function GATEChart({ bars, signal, height = 480, loading = false, compact
 
       chartRef.current = chart;
 
-      // Candlestick series (v5 API)
+      // ── Candlestick series ──────────────────────────────────────────────────
       const candles = chart.addSeries(CandlestickSeries, {
-        upColor: "#22c55e",
-        downColor: "#ef4444",
-        borderUpColor: "#22c55e",
+        upColor:         "#22c55e",
+        downColor:       "#ef4444",
+        borderUpColor:   "#22c55e",
         borderDownColor: "#ef4444",
-        wickUpColor: "#22c55e",
-        wickDownColor: "#ef4444",
+        wickUpColor:     "#22c55e",
+        wickDownColor:   "#ef4444",
       });
       candles.setData(
         bars.map((b) => ({
-          time: b.time as unknown as string,
-          open: b.open,
-          high: b.high,
-          low: b.low,
+          time:  b.time as unknown as string,
+          open:  b.open,
+          high:  b.high,
+          low:   b.low,
           close: b.close,
         }))
       );
 
-      // EMA overlays (v5 API)
+      // ── EMA overlays ────────────────────────────────────────────────────────
       EMA_CONFIG.forEach(({ key, color, width }) => {
-        const emaData = bars
+        const data = bars
           .filter((b) => b[key] != null)
           .map((b) => ({ time: b.time as unknown as string, value: b[key] as number }));
-        if (!emaData.length) return;
+        if (!data.length) return;
         const s = chart.addSeries(LineSeries, {
           color,
-          lineWidth: width as 1 | 2 | 3 | 4,
+          lineWidth:        width as 1 | 2 | 3 | 4,
           priceLineVisible: false,
+          lastValueVisible: false,
         });
-        s.setData(emaData);
+        s.setData(data);
       });
 
-      // Signal level horizontal lines with on-chart labels (v5 createPriceLine).
-      // Titles render as visible labels on the line; axis label shows the price.
+      const firstTime = bars[0].time as unknown as string;
+      const lastTime  = bars[bars.length - 1].time as unknown as string;
       const isCompact = compact || height < 300;
+
+      // ── Fibonacci retracement (always drawn, every status) ─────────────────
+      // Computed from the auto-detected swing high → swing low so the levels
+      // are visible even when the stock is in WATCH, NO_ACTION, or no signal.
+      const swing = detectFibSwing(bars);
+      if (swing) {
+        const range = swing.high - swing.low;
+        FIB_RETR_LEVELS.forEach(({ ratio, label, color }) => {
+          const price = swing.high - ratio * range;
+          const s = chart.addSeries(LineSeries, {
+            color,
+            lineWidth:        1 as const,
+            lineStyle:        LineStyle.Dashed,
+            priceLineVisible: false,
+            lastValueVisible: true,
+            title: isCompact ? `Fib ${label}` : `Fib ${label}  ${formatPrice(price)}`,
+          });
+          s.setData([
+            { time: firstTime, value: price },
+            { time: lastTime,  value: price },
+          ]);
+        });
+      }
+
+      // ── Signal levels (only when a signal exists) ──────────────────────────
       if (signal) {
-        LEVEL_CONFIG.forEach(({ key, color, dash, width, label }) => {
+        // Entry / SL / Breakout Level as price lines (always within candle range)
+        PRICE_LINE_CONFIG.forEach(({ key, color, dash, width, label }) => {
           const val = signal[key];
           if (val == null) return;
           candles.createPriceLine({
-            price: val,
+            price:            val,
             color,
-            lineWidth: (isCompact && width > 2 ? 2 : width) as 1 | 2 | 3 | 4,
-            lineStyle: dash ? LineStyle.Dashed : LineStyle.Solid,
+            lineWidth:        (isCompact && width > 2 ? 2 : width) as 1 | 2 | 3 | 4,
+            lineStyle:        dash ? LineStyle.Dashed : LineStyle.Solid,
             axisLabelVisible: true,
-            title: isCompact ? label : `${label} ${formatPrice(val)}`,
+            title:            isCompact ? label : `${label} ${formatPrice(val)}`,
           });
+        });
+
+        // Fibonacci extension targets as LineSeries (autoscale includes them
+        // even when T2/T3 are above the most recent candle range).
+        FIB_EXT_CONFIG.forEach(({ key, color, width, label, ratio }) => {
+          const val = signal[key];
+          if (val == null) return;
+          const s = chart.addSeries(LineSeries, {
+            color,
+            lineWidth:        width as 1 | 2 | 3 | 4,
+            lineStyle:        LineStyle.Solid,
+            priceLineVisible: false,
+            lastValueVisible: true,
+            title: isCompact ? label : `${label} ${ratio}  ${formatPrice(val)}`,
+          });
+          s.setData([
+            { time: firstTime, value: val },
+            { time: lastTime,  value: val },
+          ]);
         });
       }
 

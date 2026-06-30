@@ -10,7 +10,6 @@ interface ScanProgress {
 }
 
 interface PostProcessPayload {
-  watch_added: number;
   trades_created: number;
 }
 

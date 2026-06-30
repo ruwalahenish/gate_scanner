@@ -114,6 +114,24 @@ def classify(
         daily_state = daily_rng.get("state")
         forming = daily_state in ("ACCUMULATION", "BUY_ZONE", "NO_GATE")
         if best_cs >= config.CATEGORY_RULES["WATCH"]["min_gate"] and forming:
+            # §3 gate-position check: the forming base must be at/near EMA200.
+            # Consolidations far below EMA200 are bear-market bases, not GATE setups.
+            _daily_ema200 = float((daily.get("ema") or {}).get("ema_values", {}).get("EMA200") or 0)
+            _rng_high = float(daily_rng.get("range_high") or 0)
+            _rng_low  = float(daily_rng.get("range_low")  or 0)
+            if _daily_ema200 > 0 and _rng_high > 0:
+                if _rng_high < _daily_ema200 * (1 - config.GATE_PRICE_MIN_EMA200):
+                    return {"category": "IGNORE", "reasoning": "Base forming below EMA200 — breakdown phase, not GATE."}
+                # Upper-bound: box floor more than 10% above EMA200 → post-breakout base, not GATE.
+                if _rng_low > 0 and _rng_low > _daily_ema200 * (1 + config.GATE_RANGE_MAX_ABOVE_EMA200):
+                    return {"category": "IGNORE", "reasoning": "Base forming too far above EMA200 — extended zone after prior breakout, not a new GATE correction."}
+            elif _daily_ema200 > 0:
+                # No valid range detected yet (NO_GATE) — use EMA20 as price proxy
+                _ema20 = float((daily.get("ema") or {}).get("ema_values", {}).get("EMA20") or 0)
+                if _ema20 > 0 and _ema20 < _daily_ema200 * (1 - config.GATE_PRICE_MIN_EMA200):
+                    return {"category": "IGNORE", "reasoning": "Price below EMA200 — breakdown phase, not GATE."}
+                if _ema20 > 0 and _ema20 > _daily_ema200 * (1 + config.GATE_RANGE_MAX_ABOVE_EMA200):
+                    return {"category": "IGNORE", "reasoning": "Price too far above EMA200 — extended zone, not a GATE correction."}
             reason, critical = _watch_reason(daily, daily_rng)
             return {
                 "category": "WATCH",

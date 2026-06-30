@@ -20,7 +20,6 @@ import {
 } from "@/store/slices/wsSlice";
 import { scannerApi } from "@/store/api/scannerApi";
 import { paperTradingApi } from "@/store/api/paperTradingApi";
-import { watchlistApi } from "@/store/api/watchlistApi";
 import { stockMasterApi } from "@/store/api/stockMasterApi";
 import { backtestApi } from "@/store/api/backtestApi";
 import type { AppDispatch } from "@/store";
@@ -142,10 +141,8 @@ function handleMessage(
       break;
 
     case "scan.post_process": {
-      const watch  = msg.payload.watch_added    as number;
       const trades = msg.payload.trades_created as number;
-      dispatch(postProcessReceived({ watch_added: watch, trades_created: trades }));
-      dispatch(watchlistApi.util.invalidateTags(["Watchlist"]));
+      dispatch(postProcessReceived({ trades_created: trades }));
       dispatch(paperTradingApi.util.invalidateTags(["Position", "Trade", "Summary", "Performance"]));
       break;
     }
