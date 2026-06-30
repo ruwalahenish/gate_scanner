@@ -90,15 +90,13 @@ def classify(
     signal: Optional[Dict],
 ) -> Dict:
     """
-    Status gating aligned to the GATE strategy:
+    Assigns each symbol to one of the five GATE strategy lists (§14):
 
-      * BUY (INVESTMENT/SWING/POSITIONAL) — the stock is READY: coiling in the
-        breakout zone with a favorable setup, about to break out (state=BUY_ZONE).
-      * BREAKOUT — the stock has ALREADY broken out (state=BREAKOUT_CONFIRMED);
-        a distinct status, not a fresh buy opportunity.
-      * WATCH — forming the GATE but waiting (price/time correction, coiling);
-        the reasoning states WHY and the critical level to watch.
-      * IGNORE — broken / extended / no setup.
+      INVESTMENT  — weekly + monthly bullish, high rank (long-horizon buy)
+      SWING       — daily breakout confirmed, good GATE + rank
+      POSITIONAL  — 1h breakout, good GATE + rank (requires 60m in SCAN_TIMEFRAMES)
+      WATCH       — forming the GATE but breakout not yet happened
+      IGNORE      — broken / extended / no setup
     """
     weekly  = mtf_analysis.get("1wk", {})
     monthly = mtf_analysis.get("1mo", {})
@@ -128,32 +126,19 @@ def classify(
     if signal.get("rr", {}).get("T2", 0) < config.MIN_RR_RATIO:
         return {"category": "IGNORE", "reasoning": "Breakout signal but RR below threshold."}
 
-    state = signal.get("breakout_state", "")
-
-    # --- BREAKOUT: already broken out — a distinct status, not a fresh buy ---
-    if state == "BREAKOUT_CONFIRMED":
-        return {
-            "category": "BREAKOUT",
-            "reasoning": f"Already broken out above {signal.get('range_high', 0):.2f} with volume — "
-                         f"breakout in progress (not a fresh buy; watch for a pullback entry).",
-        }
-
-    # --- BUY opportunity (ready to break out): only the BUY_ZONE state ---
-    rank_score   = signal.get("rank_score", 0.0)
-    fundamental  = signal.get("fundamental_score", config.FUNDAMENTAL_NEUTRAL)
-    daily_gate   = (daily.get("gate", {}) or {}).get("score", 0.0)
-    hourly_gate  = (hourly.get("gate", {}) or {}).get("score", 0.0)
+    # --- Route BREAKOUT_CONFIRMED signals into the appropriate buy category ---
+    rank_score  = signal.get("rank_score", 0.0)
+    daily_gate  = (daily.get("gate", {}) or {}).get("score", 0.0)
+    hourly_gate = (hourly.get("gate", {}) or {}).get("score", 0.0)
     bl = signal.get("breakout_level")
-    ready = f"ready to break out above {bl:.2f}" if bl else "ready to break out"
+    ready = f"broke out above {bl:.2f}" if bl else "broke out"
 
     inv = config.CATEGORY_RULES["INVESTMENT"]
     if (_is_bullish_tf(weekly) and _is_bullish_tf(monthly)
-            and rank_score >= inv["min_score"]
-            and fundamental >= inv["min_fundamental"]):
+            and rank_score >= inv["min_score"]):
         return {
             "category": "INVESTMENT",
-            "reasoning": f"Weekly & monthly bullish, {ready}, rank {rank_score:.0f}, "
-                         f"fundamentals {fundamental:.0f} — long-term buy.",
+            "reasoning": f"Weekly & monthly bullish, {ready}, rank {rank_score:.0f} — long-term buy.",
         }
 
     swing = config.CATEGORY_RULES["SWING"]
@@ -163,18 +148,20 @@ def classify(
             "reasoning": f"Daily bullish, {ready} (GATE {daily_gate:.0f}), rank {rank_score:.0f} — swing buy.",
         }
 
-    if not config.DAILY_ONLY_MODE:
-        pos = config.CATEGORY_RULES["POSITIONAL"]
-        if _is_bullish_tf(hourly) and hourly_gate >= pos["min_gate"] and rank_score >= pos["min_score"]:
-            return {
-                "category": "POSITIONAL",
-                "reasoning": f"1h bullish, {ready} (GATE {hourly_gate:.0f}) — positional buy.",
-            }
+    pos = config.CATEGORY_RULES["POSITIONAL"]
+    if _is_bullish_tf(hourly) and hourly_gate >= pos["min_gate"] and rank_score >= pos["min_score"]:
+        return {
+            "category": "POSITIONAL",
+            "reasoning": f"1h bullish, {ready} (GATE {hourly_gate:.0f}) — positional buy.",
+        }
 
-    # Valid buy-zone setup but scores below the category floors → WATCH (not POSITIONAL
-    # in daily-only mode; wait for a stronger daily/weekly confirmation).
+    # Signal exists but scores below category floors → SWING if daily bullish, else WATCH
     if _is_bullish_tf(daily):
-        return {"category": "SWING",
-                "reasoning": f"Daily bullish, {ready}; rank {rank_score:.0f} below floor — swing buy."}
-    return {"category": "WATCH",
-            "reasoning": f"{ready} without higher-TF confirmation — watching for daily breakout."}
+        return {
+            "category": "SWING",
+            "reasoning": f"Daily bullish, {ready}; rank {rank_score:.0f} — swing buy.",
+        }
+    return {
+        "category": "WATCH",
+        "reasoning": f"{ready} without higher-TF confirmation — watching for daily breakout.",
+    }

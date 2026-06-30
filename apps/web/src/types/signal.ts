@@ -1,6 +1,6 @@
-export type SignalCategory = "INVESTMENT" | "SWING" | "POSITIONAL" | "BREAKOUT" | "WATCH" | "IGNORE";
+export type SignalCategory = "INVESTMENT" | "SWING" | "POSITIONAL" | "WATCH" | "IGNORE";
 export type SignalSide = "BUY" | "SELL";
-export type DisplayStatus = "BUY" | "BREAKOUT" | "WATCH" | "NO_ACTION";
+export type DisplayStatus = "BUY" | "WATCH" | "NO_ACTION";
 export type BreakoutState =
   | "BUY_ZONE"
   | "BREAKOUT_CONFIRMED"
@@ -49,16 +49,12 @@ export interface Signal {
     on_T3_hit?: string;
   } | null;
   reasoning: string | null;
-  // Strategy-rework fields (consolidation-range / breakout-state model)
+  // Consolidation-range / breakout-state model fields
   breakout_state: BreakoutState | null;
   range_high: number | null;
   range_low: number | null;
   breakout_level: number | null;
   measured_move: number | null;
-  rs_score: number | null;
-  sector_momentum: number | null;
-  accumulation_score: number | null;
-  fundamental_score: number | null;
   volume_buildup: boolean | null;
   created_at: string;
   // Enriched from stock_master JOIN (present when stock_master is populated)

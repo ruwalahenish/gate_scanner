@@ -93,16 +93,12 @@ def _measured_move_targets(
 def _gate_composite(
     technical_gate: float,
     alignment_pct: float,
-    rs_score: float,
-    sector_momentum: float,
 ) -> float:
-    """Signal-level GATE strength = per-TF technical gate + cross-cutting context."""
+    """Signal-level GATE strength = per-TF technical gate + MTF trend alignment."""
     w = config.GATE_WEIGHTS
     score = (
         w["technical_gate"]    * technical_gate
         + w["trend_alignment"] * alignment_pct
-        + w["relative_strength"] * rs_score
-        + w["sector_momentum"] * sector_momentum
     )
     return float(max(0.0, min(100.0, score)))
 
@@ -200,9 +196,6 @@ def generate_signal(
     mtf_data: Dict[str, "pd.DataFrame"],
     mtf_analysis: Dict[str, Dict],
     mtf_sum: Dict,
-    rs_score: Optional[float] = None,
-    sector_momentum: Optional[float] = None,
-    fundamental_score: Optional[float] = None,
 ) -> Optional[Dict]:
     """
     Returns a BUY trade signal dict or None if no actionable setup.
@@ -210,20 +203,7 @@ def generate_signal(
     A signal is emitted ONLY when state == BREAKOUT_CONFIRMED (price has closed
     above the gate top with volume). BUY_ZONE = price approaching the gate → WATCH,
     not a buy (§6/§7). Never emits on EXTENDED, BROKEN_DOWN, ACCUMULATION, or NO_GATE.
-
-    Parameters
-    ----------
-    symbol            : str
-    mtf_data          : { tf: DataFrame }
-    mtf_analysis      : { tf: analyze_timeframe(...) result }
-    mtf_sum           : mtf_summary(...) result
-    rs_score          : relative strength vs index (0–100); defaults to neutral
-    sector_momentum   : sector momentum (0–100); defaults to neutral
-    fundamental_score : fundamental quality (0–100); defaults to neutral
     """
-    rs_score = config.RS_NEUTRAL if rs_score is None else rs_score
-    sector_momentum = config.SECTOR_NEUTRAL if sector_momentum is None else sector_momentum
-    fundamental_score = config.FUNDAMENTAL_NEUTRAL if fundamental_score is None else fundamental_score
 
     sig_tf = _signal_tf(mtf_sum, mtf_data)
     if not sig_tf or sig_tf not in mtf_data or mtf_data[sig_tf].empty:
@@ -336,14 +316,12 @@ def generate_signal(
     bounce_seq_valid = sig_ema.get("bounce_sequence_valid", True)
     fib_conf = _fib_confluence(entry, swing_high, swing_low)
 
-    # ---- Composite GATE strength (technical gate + trend + RS + sector) ----
+    # ---- Composite GATE strength (technical gate + trend alignment) ----
     technical_gate = (sig_analysis.get("gate", {}) or {}).get("score", 0.0)
     gate_strength = _gate_composite(
-        technical_gate, mtf_sum["alignment"]["alignment_pct"], rs_score, sector_momentum
+        technical_gate, mtf_sum["alignment"]["alignment_pct"]
     )
     breakout_readiness = float(rng.get("proximity_score", 0.0))
-    accumulation_score = float((sig_analysis.get("gate", {}) or {}).get(
-        "components", {}).get("accumulation", config.SECTOR_NEUTRAL))
 
     # ---- Confidence ----
     confidence = _confidence(
@@ -357,8 +335,7 @@ def generate_signal(
     )
 
     reasoning = _build_reasoning(
-        symbol, side, sig_tf, rng, sig_analysis, mtf_sum,
-        rs_score, sector_momentum, fundamental_score, volume_buildup, fib_conf,
+        symbol, side, sig_tf, rng, sig_analysis, mtf_sum, volume_buildup, fib_conf,
     )
 
     return {
@@ -391,10 +368,6 @@ def generate_signal(
         "breakout_level":         breakout_level,
         "measured_move":          targets["T1"],
         "breakout_readiness":     breakout_readiness,
-        "rs_score":               float(rs_score),
-        "sector_momentum":        float(sector_momentum),
-        "accumulation_score":     accumulation_score,
-        "fundamental_score":      float(fundamental_score),
         "volume_buildup":         volume_buildup,
         # diagnostic
         "atr":                    float(atr_val),
@@ -404,17 +377,15 @@ def generate_signal(
 
 
 def _build_reasoning(
-    symbol, side, sig_tf, rng, sig_analysis, mtf_sum,
-    rs_score, sector_momentum, fundamental_score, volume_buildup, fib_conf,
+    symbol, side, sig_tf, rng, sig_analysis, mtf_sum, volume_buildup, fib_conf,
 ) -> str:
     parts = []
     ema    = sig_analysis["ema"]
     gate   = sig_analysis["gate"]
     struct = sig_analysis["structure"]
 
-    state_label = "on a fresh confirmed breakout"
     parts.append(
-        f"{symbol} {side.upper()} on {sig_tf}: price is {state_label} "
+        f"{symbol} {side.upper()} on {sig_tf}: price is on a fresh confirmed breakout "
         f"(box {rng.get('range_low'):.2f}–{rng.get('range_high'):.2f}, "
         f"trigger {rng.get('breakout_level'):.2f})."
     )
@@ -423,12 +394,7 @@ def _build_reasoning(
         f"GATE {gate.get('score', 0):.0f} "
         f"(consolidation {gate.get('consolidation_strength', 0):.0f}, "
         f"breakout proximity {rng.get('proximity_score', 0):.0f}); "
-        f"EMA stack {ema['stack']}, phase {struct['phase']}."
-    )
-
-    parts.append(
-        f"Relative strength {rs_score:.0f} vs Nifty, sector momentum {sector_momentum:.0f}, "
-        f"fundamental score {fundamental_score:.0f}. "
+        f"EMA stack {ema['stack']}, phase {struct['phase']}. "
         f"Volume buildup: {'yes' if volume_buildup else 'not yet'}."
     )
 

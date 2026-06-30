@@ -10,7 +10,6 @@ DISPLAY_STATUS = {
     "INVESTMENT": "BUY",
     "SWING":      "BUY",
     "POSITIONAL": "BUY",
-    "BREAKOUT":   "BREAKOUT",   # already broken out — distinct from a fresh buy
     "WATCH":      "WATCH",
     "IGNORE":     "NO_ACTION",
 }
@@ -19,7 +18,6 @@ DISPLAY_CATEGORY = {
     "INVESTMENT": "Long-Term Buy",
     "SWING":      "Swing Buy",
     "POSITIONAL": "Positional Buy",
-    "BREAKOUT":   "Broken Out",
     "WATCH":      "Watch",
     "IGNORE":     "No Action",
 }

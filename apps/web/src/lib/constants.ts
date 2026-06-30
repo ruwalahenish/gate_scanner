@@ -4,15 +4,13 @@ export const CATEGORY_COLORS = {
   INVESTMENT: "#22c55e",
   SWING:      "#6366f1",
   POSITIONAL: "#38bdf8",
-  BREAKOUT:   "#f97316",
   WATCH:      "#f59e0b",
   IGNORE:     "#64748b",
 } as const;
 
-export const CATEGORY_ORDER = ["INVESTMENT", "SWING", "POSITIONAL", "BREAKOUT", "WATCH", "IGNORE"] as const;
+export const CATEGORY_ORDER = ["INVESTMENT", "SWING", "POSITIONAL", "WATCH", "IGNORE"] as const;
 
-// Categories that represent actionable BUY signals (ready, pre-breakout).
-// BREAKOUT (already broken out) is intentionally NOT a buy.
+// Categories that represent actionable BUY signals.
 export const BUY_CATEGORIES: ReadonlySet<string> = new Set(["INVESTMENT", "SWING", "POSITIONAL"]);
 
 // Maps raw signal category → user-facing label + display bucket.
@@ -20,7 +18,6 @@ export const CATEGORY_DISPLAY: Record<SignalCategory, { label: string; display: 
   INVESTMENT: { label: "Long-Term Buy",  display: "BUY"       },
   SWING:      { label: "Swing Buy",      display: "BUY"       },
   POSITIONAL: { label: "Positional Buy", display: "BUY"       },
-  BREAKOUT:   { label: "Broken Out",     display: "BREAKOUT"  },
   WATCH:      { label: "Watch",          display: "WATCH"     },
   IGNORE:     { label: "No Action",      display: "NO_ACTION" },
 };
@@ -41,13 +38,11 @@ export const STATUS_COLORS = {
   INVESTMENT:     "#22c55e",
   SWING:          "#6366f1",
   POSITIONAL:     "#38bdf8",
-  BREAKOUT:       "#f97316",
   WATCH:          "#f59e0b",
   IGNORE:         "#64748b",
   "Long-Term Buy": "#22c55e",
   "Swing Buy":     "#6366f1",
   "Positional Buy":"#38bdf8",
-  "Broken Out":    "#f97316",
   "Watch":         "#f59e0b",
   "No Action":     "#64748b",
 } as const;

@@ -86,7 +86,7 @@ async def trigger_scan(
 
 @router.get("/latest/signals")
 async def get_latest_signals_endpoint(
-    status: str | None = Query(None, pattern="^(BUY|BREAKOUT|WATCH|NO_ACTION)$"),
+    status: str | None = Query(None, pattern="^(BUY|WATCH|NO_ACTION)$"),
     min_rank: float = Query(0, ge=0, le=100),
     min_gate: float = Query(0, ge=0, le=100),
     side: str | None = None,
@@ -101,8 +101,6 @@ async def get_latest_signals_endpoint(
     category_filter: str | list[str] | None = None
     if status == "BUY":
         category_filter = ["INVESTMENT", "SWING", "POSITIONAL"]
-    elif status == "BREAKOUT":
-        category_filter = "BREAKOUT"
     elif status == "WATCH":
         category_filter = "WATCH"
     elif status == "NO_ACTION":
@@ -156,18 +154,16 @@ async def get_latest_signal_counts(
 
     row = await conn.fetchrow(
         """SELECT
-             COUNT(*)                                                         AS total,
+             COUNT(*)                                                              AS total,
              COUNT(*) FILTER (WHERE category IN ('INVESTMENT','SWING','POSITIONAL')) AS buy_count,
-             COUNT(*) FILTER (WHERE category = 'BREAKOUT')                   AS breakout_count,
-             COUNT(*) FILTER (WHERE category = 'WATCH')                      AS watch_count,
-             COUNT(*) FILTER (WHERE category = 'IGNORE')                     AS no_action_count
+             COUNT(*) FILTER (WHERE category = 'WATCH')                           AS watch_count,
+             COUNT(*) FILTER (WHERE category = 'IGNORE')                          AS no_action_count
            FROM signals
            WHERE scan_id = (SELECT id FROM scans WHERE status='done' ORDER BY triggered_at DESC LIMIT 1)"""
     )
     result = {
         "total": row["total"] if row else 0,
         "buy_count": row["buy_count"] if row else 0,
-        "breakout_count": row["breakout_count"] if row else 0,
         "watch_count": row["watch_count"] if row else 0,
         "no_action_count": row["no_action_count"] if row else 0,
     }
@@ -182,7 +178,7 @@ async def get_latest_signal_counts(
 @router.get("/{scan_id}/signals")
 async def get_scan_signals(
     scan_id: UUID,
-    status: str | None = Query(None, pattern="^(BUY|BREAKOUT|WATCH|NO_ACTION)$"),
+    status: str | None = Query(None, pattern="^(BUY|WATCH|NO_ACTION)$"),
     min_rank: float = Query(0, ge=0, le=100),
     min_gate: float = Query(0, ge=0, le=100),
     limit: int = Query(50, ge=1, le=200),
@@ -197,8 +193,6 @@ async def get_scan_signals(
     category_filter: str | list[str] | None = None
     if status == "BUY":
         category_filter = ["INVESTMENT", "SWING", "POSITIONAL"]
-    elif status == "BREAKOUT":
-        category_filter = "BREAKOUT"
     elif status == "WATCH":
         category_filter = "WATCH"
     elif status == "NO_ACTION":
