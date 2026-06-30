@@ -1,7 +1,6 @@
 import { configureStore } from "@reduxjs/toolkit";
 import { scannerApi } from "./api/scannerApi";
 import { paperTradingApi } from "./api/paperTradingApi";
-import { watchlistApi } from "./api/watchlistApi";
 import { marketApi } from "./api/marketApi";
 import { stockMasterApi } from "./api/stockMasterApi";
 import { backtestApi } from "./api/backtestApi";
@@ -16,7 +15,6 @@ export const store = configureStore({
     ws:                               wsSlice.reducer,
     [scannerApi.reducerPath]:         scannerApi.reducer,
     [paperTradingApi.reducerPath]:    paperTradingApi.reducer,
-    [watchlistApi.reducerPath]:       watchlistApi.reducer,
     [marketApi.reducerPath]:          marketApi.reducer,
     [stockMasterApi.reducerPath]:     stockMasterApi.reducer,
     [backtestApi.reducerPath]:        backtestApi.reducer,
@@ -26,7 +24,6 @@ export const store = configureStore({
     getDefault().concat(
       scannerApi.middleware,
       paperTradingApi.middleware,
-      watchlistApi.middleware,
       marketApi.middleware,
       stockMasterApi.middleware,
       backtestApi.middleware,

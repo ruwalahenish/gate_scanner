@@ -63,39 +63,15 @@ def _analyze_one(
     mtf_data: dict,
     mtf_agent: MTFAnalysisAgent,
     risk_agent: RiskManagementAgent,
-    index_df=None,
-    sector_momentum_map: Optional[Dict[str, float]] = None,
-    fundamentals_map: Optional[Dict[str, dict]] = None,
 ) -> dict | None:
     """Analyze a single symbol through MTF + Risk stages. Returns enriched dict or None on error."""
-    from app.core.analysis import relative_strength, fundamentals as fundamentals_mod
-    from app.core.scanner.universe.nse_universe import SECTOR_MAP
-
     try:
         mtf_result = mtf_agent.analyze(mtf_data, symbol=symbol)
-
-        base = _base_symbol(symbol)
-        daily_df = mtf_data.get(config.SCAN_TIMEFRAME)
-        rs = (
-            relative_strength.rs_score(daily_df, index_df)
-            if daily_df is not None and not daily_df.empty
-            else config.RS_NEUTRAL
-        )
-        sector_mom = (sector_momentum_map or {}).get(
-            SECTOR_MAP.get(base), config.SECTOR_NEUTRAL
-        )
-        fund = fundamentals_mod.fundamental_score(
-            (fundamentals_map or {}).get(base)
-        )
-
         signal = risk_agent.build_signal(
             symbol,
             mtf_data,
             mtf_result["per_tf"],
             mtf_result["summary"],
-            rs_score=rs,
-            sector_momentum=sector_mom,
-            fundamental_score=fund,
         )
         return {
             "symbol":      symbol,
@@ -118,7 +94,6 @@ def run_scan(
     all_equity: bool = False,
     on_batch: Optional[Callable[[list, int, int], None]] = None,
     batch_size: int = _BATCH_SIZE,
-    fundamentals_map: Optional[Dict[str, dict]] = None,
     on_phase: Optional[Callable[[str, str], None]] = None,
 ) -> List[Dict]:
     """
@@ -149,22 +124,7 @@ def run_scan(
             all_equity=all_equity,
         )
 
-    # ---- Scan-wide context: computed once before streaming starts ----
-    # These are independent of per-stock data so we compute them upfront.
-    from app.core.scanner import data_fetcher
-    from app.core.analysis import sector_engine
-
-    try:
-        index_df = data_fetcher.get_ohlcv(config.INDEX_SYMBOL, interval=config.SCAN_TIMEFRAME)
-    except Exception as e:
-        logger.warning("index fetch failed for %s: %s — RS will be neutral", config.INDEX_SYMBOL, e)
-        index_df = None
-    try:
-        sector_momentum_map = sector_engine.compute_sector_momentum()
-    except Exception as e:
-        logger.warning("sector momentum computation failed: %s — sectors will be neutral", e)
-        sector_momentum_map = {}
-    fundamentals_map = fundamentals_map or {}
+    # (no scan-wide pre-fetch needed — pure GATE strategy uses only OHLCV)
 
     # ---- 1) Scanner agent ----
     scanner = MarketScannerAgent(
@@ -205,10 +165,7 @@ def run_scan(
                     logger.exception("on_batch callback failed (filtered) at %d", done_count)
             continue
 
-        result = _analyze_one(
-            sym, mtf, mtf_agent, risk_agent,
-            index_df, sector_momentum_map, fundamentals_map,
-        )
+        result = _analyze_one(sym, mtf, mtf_agent, risk_agent)
         ranked = ranker.rank_and_classify([result]) if result else []
         all_results.extend(ranked)
 

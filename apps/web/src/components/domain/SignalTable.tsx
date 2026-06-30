@@ -116,19 +116,12 @@ const BREAKOUT_STATE_COLORS: Record<string, string> = {
   NO_GATE: "#64748b",
 };
 
-const fmtScore = (v: number | null | undefined) =>
-  v == null ? "—" : Math.round(v).toString();
-
-// Compact strip of the strategy-rework context metrics shown above the setup.
+// Compact strip of consolidation-range context shown above the trade setup.
 const GateContextStrip = memo(function GateContextStrip({ signal }: { signal: Signal }) {
   const {
-    breakout_state, rs_score, sector_momentum, fundamental_score, accumulation_score,
-    range_low, range_high, breakout_level, category, reasoning,
+    breakout_state, range_low, range_high, breakout_level, category, reasoning,
   } = signal;
-  const hasContext =
-    breakout_state != null || rs_score != null || sector_momentum != null ||
-    fundamental_score != null || accumulation_score != null;
-  if (!hasContext) return null;
+  if (!breakout_state && range_low == null && breakout_level == null) return null;
 
   const stateColor = BREAKOUT_STATE_COLORS[breakout_state ?? "NO_GATE"] ?? "#64748b";
   const isWatch = category === "WATCH";
@@ -153,10 +146,6 @@ const GateContextStrip = memo(function GateContextStrip({ signal }: { signal: Si
             Box {formatPrice(range_low)}–{formatPrice(range_high)}
           </Typography>
         )}
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.62rem" }}>
-          RS {fmtScore(rs_score)} · Sector {fmtScore(sector_momentum)} ·
-          Fund {fmtScore(fundamental_score)} · Accum {fmtScore(accumulation_score)}
-        </Typography>
       </Box>
       {isWatch && reasoning && (
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, fontSize: "0.66rem", fontStyle: "italic" }}>

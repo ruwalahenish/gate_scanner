@@ -47,8 +47,8 @@ class SignalRankingAgent(BaseAgent):
                 r.get("signal"),
             )
 
-        # 3) Sort: category priority then rank_score
-        order = {"INVESTMENT": 0, "SWING": 1, "POSITIONAL": 2, "BREAKOUT": 3, "WATCH": 4, "IGNORE": 5}
+        # 3) Sort: category priority then rank_score (five GATE lists per §14)
+        order = {"INVESTMENT": 0, "SWING": 1, "POSITIONAL": 2, "WATCH": 3, "IGNORE": 4}
         scored_universe.sort(
             key=lambda r: (
                 order.get(r["classification"]["category"], 99),

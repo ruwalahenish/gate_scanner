@@ -23,7 +23,7 @@ EMA stack and recent close vs. mid-BB.
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import pandas as pd
 
@@ -31,7 +31,44 @@ from app.core import config
 from app.core.analysis import indicators as ind
 from app.core.analysis import ema_engine
 from app.core.analysis import range_engine
-from app.core.analysis import accumulation as accum
+
+_VOL_BUILDUP_BARS = 3   # recent bars that should show volume expansion
+
+
+def _volume_pattern(df: "pd.DataFrame") -> Tuple[float, bool]:
+    """
+    GATE volume signature: volume dries up during the base then builds up near
+    the breakout (§3/§6C: above-average volume required on breakout candle).
+
+    Returns (score 0–100, buildup_flag). High score requires BOTH a quiet base
+    (recent avg below the longer baseline) AND a pickup in the last few bars.
+    """
+    if df is None or df.empty or "Volume" not in df.columns:
+        return 50.0, False
+    if len(df) < config.VOL_CONTRACTION_LOOKBACK_LONG:
+        return 50.0, False
+
+    vol = df["Volume"].fillna(0.0)
+    short_avg = float(vol.iloc[-config.VOL_CONTRACTION_LOOKBACK_SHORT:].mean())
+    long_avg = float(vol.iloc[-config.VOL_CONTRACTION_LOOKBACK_LONG:].mean())
+    if long_avg <= 0:
+        return 50.0, False
+
+    dry_ratio = short_avg / long_avg
+    dryup_score = max(0.0, min(1.0, (1.0 - dry_ratio) / 0.5))
+
+    recent_avg = float(vol.iloc[-_VOL_BUILDUP_BARS:].mean())
+    base_avg = (
+        float(vol.iloc[-config.VOL_CONTRACTION_LOOKBACK_SHORT:-_VOL_BUILDUP_BARS].mean())
+        if config.VOL_CONTRACTION_LOOKBACK_SHORT > _VOL_BUILDUP_BARS
+        else short_avg
+    )
+    buildup_ratio = recent_avg / base_avg if base_avg > 0 else 1.0
+    buildup_flag = buildup_ratio >= 1.15  # 15% pickup is sufficient; 1.3 was too strict
+    buildup_score = max(0.0, min(1.0, (buildup_ratio - 1.0) / 0.5))
+
+    score = 100.0 * (0.5 * dryup_score + 0.5 * buildup_score)
+    return float(max(0.0, min(100.0, score))), bool(buildup_flag)
 
 
 # -----------------------------------------------------------------------------
@@ -167,14 +204,14 @@ def consolidation_strength(df: pd.DataFrame) -> Dict:
 
 # -----------------------------------------------------------------------------
 # Composite per-TF GATE  (technical gate: tightness + breakout proximity +
-# volume pattern + accumulation — see GATE_TF_WEIGHTS)
+# volume pattern — see GATE_TF_WEIGHTS)
 # -----------------------------------------------------------------------------
 def gate_score(df: pd.DataFrame) -> Dict:
     """
     Returns the per-timeframe technical GATE score:
       {
         "score": float [0, 100],            # the GATE_TF_WEIGHTS composite
-        "components": {...},                 # contraction sub-signals + 4 TF components
+        "components": {...},                 # contraction sub-signals + 3 TF components
         "consolidation_strength": float,
         "is_gate": bool,
         "direction_bias": "bullish" | "bearish" | "neutral",
@@ -195,14 +232,12 @@ def gate_score(df: pd.DataFrame) -> Dict:
 
     contraction = consolidation_strength(df)
     rng = range_engine.analyze_range(df)
-    vol_pattern_score, buildup = accum.volume_pattern(df)
-    accumulation_v = accum.accumulation_score(df)
+    vol_pattern_score, buildup = _volume_pattern(df)
 
     tf_components = {
         "consolidation_strength": contraction["score"],
         "breakout_proximity":     rng.get("proximity_score", 0.0),
         "volume_pattern":         vol_pattern_score,
-        "accumulation":           accumulation_v,
     }
     score = sum(tf_components[k] * config.GATE_TF_WEIGHTS[k] for k in tf_components)
 
@@ -225,7 +260,7 @@ def gate_score(df: pd.DataFrame) -> Dict:
         "score": float(score),
         "components": {**contraction["components"], **tf_components},
         "consolidation_strength": contraction["score"],
-        "is_gate": score >= 55.0,
+        "is_gate": score >= 45.0,  # 55 was too strict; 45 allows mild contractions with strong breakout proximity
         "direction_bias": bias,
         "range": rng,
         "volume_buildup": bool(buildup),

@@ -175,13 +175,9 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
         log.info("scan_completed", scan_id=scan_id, signals=total_inserted, duration=round(duration, 1))
 
         # ── Post-scan automation ─────────────────────────────────────────
-        watch_added = 0
         trades_created = 0
         try:
-            from app.services.automation_service import (
-                auto_update_watchlist,
-                auto_create_paper_trades,
-            )
+            from app.services.automation_service import auto_create_paper_trades
             async with db_pool.acquire() as conn:
                 scan_signals = await conn.fetch(
                     "SELECT * FROM signals WHERE scan_id=$1", sid
@@ -194,14 +190,12 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
                      for k, v in row.items()}
                     for row in signals_list
                 ]
-                watch_added = await auto_update_watchlist(conn, signals_list)
                 trades_created = await auto_create_paper_trades(conn, signals_list)
 
             await _publish("scan:post_process", {
                 "type": "scan.post_process",
                 "payload": {
                     "scan_id": scan_id,
-                    "watch_added": watch_added,
                     "trades_created": trades_created,
                 },
                 "timestamp": _now(),
@@ -211,8 +205,7 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
                 await redis.delete("dashboard:stats")
             except Exception:
                 pass
-            log.info("post_scan_automation_done",
-                     watch_added=watch_added, trades_created=trades_created)
+            log.info("post_scan_automation_done", trades_created=trades_created)
         except Exception as exc:
             log.warning("post_scan_automation_failed", error=str(exc))
 

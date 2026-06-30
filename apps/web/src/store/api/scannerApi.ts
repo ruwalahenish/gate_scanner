@@ -4,7 +4,7 @@ import type { SignalListResponse } from "@/types/signal";
 import type { ScanResult } from "@/types/scan";
 
 export interface ScanFilters {
-  status?: "BUY" | "BREAKOUT" | "WATCH" | "NO_ACTION";
+  status?: "BUY" | "WATCH" | "NO_ACTION";
   min_rank?: number;
   min_gate?: number;
   side?: string;
@@ -16,7 +16,6 @@ export interface ScanFilters {
 export interface SignalCounts {
   total: number;
   buy_count: number;
-  breakout_count: number;
   watch_count: number;
   no_action_count: number;
 }
@@ -44,14 +43,6 @@ export interface DashboardData {
     buy_count: number;
     watch_count: number;
     no_action_count: number;
-  };
-  watchlist: {
-    total: number;
-    active: number;
-    buy_triggered: number;
-    target_hit: number;
-    sl_hit: number;
-    closed: number;
   };
   paper_trading: {
     open_positions: number;

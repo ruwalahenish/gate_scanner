@@ -150,64 +150,33 @@ CONTRACTION_WEIGHTS = {
 
 # -----------------------------------------------------------------------------
 # PER-TIMEFRAME GATE SCORE WEIGHTS (technical gate; must sum to 1.0)
-# The per-TF gate blends consolidation tightness with where price sits vs its
-# breakout zone and whether volume/accumulation supports an upcoming move.
+# The per-TF gate blends consolidation tightness, breakout proximity, and
+# volume pattern (§3: Volume is a required tool for breakout confirmation).
 # -----------------------------------------------------------------------------
 GATE_TF_WEIGHTS = {
-    "consolidation_strength": 0.40,   # the CONTRACTION_WEIGHTS composite
+    "consolidation_strength": 0.50,   # the CONTRACTION_WEIGHTS composite
     "breakout_proximity":     0.25,   # closeness to range_high (peaks in BUY_ZONE)
-    "volume_pattern":         0.20,   # dry-up during base + buildup near top
-    "accumulation":           0.15,   # OBV / A-D smart-money proxy
+    "volume_pattern":         0.25,   # dry-up during base + buildup near top
 }
 
 # -----------------------------------------------------------------------------
 # SIGNAL-LEVEL GATE COMPOSITE WEIGHTS (final gate_strength; must sum to 1.0)
-# Combines the signal-TF technical gate with cross-cutting context.
+# Combines the signal-TF technical gate with MTF trend alignment.
 # -----------------------------------------------------------------------------
 GATE_WEIGHTS = {
-    "technical_gate":    0.50,   # per-TF gate on the signal timeframe
-    "trend_alignment":   0.18,   # MTF agreement (bigger picture bullish)
-    "relative_strength": 0.18,   # vs Nifty
-    "sector_momentum":   0.14,   # sector strength
+    "technical_gate":  0.60,   # per-TF gate on the signal timeframe
+    "trend_alignment": 0.40,   # MTF agreement (bigger picture bullish)
 }
 
 # -----------------------------------------------------------------------------
 # COMPOSITE SCORE WEIGHTS for ranking (must sum to 1.0)
+# Pure GATE strategy ranking: gate quality + breakout readiness + risk-reward.
 # -----------------------------------------------------------------------------
 RANK_WEIGHTS = {
-    "gate_strength":       0.34,   # the GATE_WEIGHTS composite
-    "breakout_readiness":  0.16,   # how primed the breakout is (state + proximity)
-    "rr_ratio":            0.12,   # structural risk-reward
-    "relative_strength":   0.12,
-    "sector_momentum":     0.08,
-    "fundamental_score":   0.18,   # fundamental quality
+    "gate_strength":      0.55,   # the GATE_WEIGHTS composite
+    "breakout_readiness": 0.25,   # how primed the breakout is (state + proximity)
+    "rr_ratio":           0.20,   # structural risk-reward
 }
-
-# -----------------------------------------------------------------------------
-# FUNDAMENTAL QUALITY SCORE  (must sum to 1.0)
-# Score computed over AVAILABLE metrics only (renormalized); sparse data → neutral.
-# -----------------------------------------------------------------------------
-FUNDAMENTAL_WEIGHTS = {
-    # Core profitability
-    "roe":              0.18,
-    "roce_actual":      0.15,   # true ROCE from Screener.in (falls back to yfinance proxy)
-    # Growth — YoY and 3y CAGR weighted equally; both absent → graceful degradation
-    "revenue_growth":   0.10,
-    "revenue_cagr_3y":  0.08,
-    "profit_growth":    0.10,
-    "profit_cagr_3y":   0.08,
-    # Risk & efficiency
-    "debt_to_equity":   0.11,
-    # Margin — opm_latest (Screener.in) and profit_margin (yfinance) may both be present;
-    # renormalization means double-counting is dampened automatically.
-    "profit_margin":    0.05,
-    "opm_latest":       0.07,
-    # Ownership quality (Screener.in shareholding)
-    "promoter_holding": 0.08,
-}
-# Weights sum to 1.00 when all fields present; sparse data auto-renormalizes.
-FUNDAMENTAL_MIN_FIELDS = 2     # need >= this many metrics, else return neutral
-FUNDAMENTAL_NEUTRAL = 50.0     # score when fundamentals are unavailable/sparse
 
 # -----------------------------------------------------------------------------
 # CONSOLIDATION-RANGE / BREAKOUT-STATE MODEL
@@ -215,7 +184,10 @@ FUNDAMENTAL_NEUTRAL = 50.0     # score when fundamentals are unavailable/sparse
 # has already broken out (BREAKOUT_CONFIRMED). BUY_ZONE = price approaching the
 # gate top but not yet through it → WATCH only, never actionable (§6/§7).
 # -----------------------------------------------------------------------------
-RANGE_LOOKBACK         = 60      # bars on the signal TF used to detect the box
+RANGE_LOOKBACK         = 60      # bars on the signal TF used to detect the box (primary)
+RANGE_LOOKBACK_FALLBACKS = [40, 30]  # shorter windows tried when primary box is too tall;
+                                     # lets the detector find a base at EMA200 even when the
+                                     # prior correction leg is still inside the 60-bar window
 RANGE_MIN_DURATION     = 12      # box must persist >= this many bars to be valid
 RANGE_MAX_HEIGHT_PCT   = 0.25    # box height (high-low)/low must be <= 25% (a base, not a trend leg)
 RANGE_TIGHTNESS_ATR_MULT = 2.5   # recent ATR <= box_height/this → tight coil
@@ -242,24 +214,14 @@ FIB_EXT_T2 = 1.618   # main target   — golden ratio extension
 FIB_EXT_T3 = 2.618   # extended run
 
 # -----------------------------------------------------------------------------
-# RELATIVE STRENGTH / SECTOR MOMENTUM
-# -----------------------------------------------------------------------------
-INDEX_SYMBOL        = "^NSEI"            # Nifty 50 — relative-strength baseline
-RS_LOOKBACK_WINDOWS = [21, 63, 126]      # ~1m / 3m / 6m trading-day windows
-RS_NEUTRAL          = 50.0               # >50 = outperforming the index
-SECTOR_MOMENTUM_LOOKBACK = 63            # ~3 months of daily bars
-SECTOR_NEUTRAL      = 50.0
-# Per-lookback return that maps to the score extremes (±this → ~10/90)
-RS_RETURN_SCALE     = 0.20
-SECTOR_RETURN_SCALE = 0.20
-
-# -----------------------------------------------------------------------------
 # CLASSIFICATION RULES
-# -----------------------------------------------------------------------------
+# Five lists per GATE strategy §14: Investment, Swing, Positional, Watch, Ignore.
 # A BUY-category signal (INVESTMENT/SWING/POSITIONAL) is emitted only when an
 # actionable breakout setup exists; otherwise WATCH (forming) or IGNORE.
+# NOTE: POSITIONAL (1h–2h setups) requires "60m" in SCAN_TIMEFRAMES to activate.
+# -----------------------------------------------------------------------------
 CATEGORY_RULES = {
-    "INVESTMENT":  {"weekly_bull": True,  "monthly_bull": True,  "min_score": 70, "min_fundamental": 55},
+    "INVESTMENT":  {"weekly_bull": True,  "monthly_bull": True,  "min_score": 70},
     "SWING":       {"daily_bull": True,   "min_gate": 55,        "min_score": 60},
     "POSITIONAL":  {"hourly_bull": True,  "min_gate": 45,        "min_score": 50},
     "WATCH":       {"min_gate": 50,       "no_breakout_yet": True},
@@ -273,7 +235,17 @@ CATEGORY_RULES = {
 MIN_RR_RATIO = 1.5           # minimum acceptable risk-reward at T1
 MIN_AVG_VOLUME = 100_000     # liquidity floor (20-bar avg daily volume)  (S-4)
 MIN_PRICE = 20.0             # avoid penny stocks  (S-4)
-MAX_SL_DISTANCE_PCT = 0.08   # SL no further than 8% from entry for daily swing trades (§8)
+MAX_SL_DISTANCE_PCT = 0.10   # SL no further than 10% from entry for daily swing trades (§8)
+
+# GATE position requirement: the GATE squeeze forms AT the 200 EMA (§1–§3).
+# Price must be within this fraction below EMA200 for a valid GATE signal or WATCH.
+# Stocks more than GATE_PRICE_MIN_EMA200 below EMA200 are in a bear breakdown, not
+# a correction-to-EMA200 setup.
+GATE_PRICE_MIN_EMA200 = 0.05   # allow up to 5% below EMA200 (EMA cluster spans EMA200)
+# Upper bound: the consolidation box floor must not be more than this fraction ABOVE EMA200.
+# If range_low > EMA200 × (1 + this), the stock has already broken out and extended well above
+# EMA200 — the tight coil we detect is a post-breakout base, not a correction-to-EMA200 GATE.
+GATE_RANGE_MAX_ABOVE_EMA200 = 0.10   # range_low must be ≤ EMA200 × 1.10
 
 # Confidence adjustments applied as multipliers in _confidence()
 INVALID_SEQUENCE_PENALTY = 0.08   # -8% when EMA bounce sequence is out of order
@@ -326,12 +298,11 @@ BACKTEST_MAX_POSITIONS = 10            # max concurrent open positions
 BACKTEST_TIMEFRAME     = "1d"          # GATE strategy works best on daily
 
 # -----------------------------------------------------------------------------
-# DAILY TIMEFRAME STRATEGY — the entire GATE platform operates on 1d bars.
-# When True, the POSITIONAL category (1h–2h setups) is suppressed; signals that
-# would have been POSITIONAL are demoted to WATCH. §14 of the strategy document
-# lists POSITIONAL as a separate mode outside the current daily-only scope.
+# DAILY TIMEFRAME STRATEGY — the platform currently scans 1d bars.
+# Set False so all five GATE categories are active per §14 of the strategy.
+# POSITIONAL signals (1h–2h) require "60m" to be added to SCAN_TIMEFRAMES.
 # -----------------------------------------------------------------------------
-DAILY_ONLY_MODE = True
+DAILY_ONLY_MODE = False
 # The entry signal is ALWAYS generated on the daily (1d) timeframe.
 # 4h bars are fetched to compute the SL (SL_TIMEFRAME_MAP["1d"] = "4h").
 # 1wk bars are fetched for HTF confirmation (direction agreement).

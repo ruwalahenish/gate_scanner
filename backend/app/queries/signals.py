@@ -74,10 +74,6 @@ async def insert_signals_batch(
             _f(range_low),
             _f(breakout_level),
             _f(signal.get("measured_move")),
-            _f(signal.get("rs_score")),
-            _f(signal.get("sector_momentum")),
-            _f(signal.get("accumulation_score")),
-            _f(signal.get("fundamental_score")),
             signal.get("volume_buildup"),
         ))
 
@@ -94,7 +90,6 @@ async def insert_signals_batch(
             "htf_confirmed", "correction_validated", "bounce_sequence_valid", "fib_confluence",
             "phase", "trailing_plan", "reasoning",
             "breakout_state", "range_high", "range_low", "breakout_level", "measured_move",
-            "rs_score", "sector_momentum", "accumulation_score", "fundamental_score",
             "volume_buildup",
         ],
     )

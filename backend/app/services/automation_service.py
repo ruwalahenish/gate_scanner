@@ -1,15 +1,13 @@
 """
 automation_service.py
 =====================
-Post-scan automation: auto-populate watchlist (WATCH signals) and
-auto-create paper trades (BUY signals above rank threshold).
+Post-scan automation: auto-create paper trades (BUY signals above rank threshold).
 
 Called by scanner_tasks.py after every scan completes.
 """
 from __future__ import annotations
 
 import asyncio
-import json
 from uuid import UUID
 
 import asyncpg
@@ -34,96 +32,6 @@ _BUY_CATEGORIES = {"INVESTMENT", "SWING", "POSITIONAL"}
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-
-async def auto_update_watchlist(
-    conn: asyncpg.Connection,
-    signals: list[dict],
-) -> int:
-    """
-    Upsert WATCH-category signals into the watchlist (batched — 3 queries total
-    instead of 2 per signal).
-    - New symbols get an 'added' history event.
-    - Existing symbols get a 'gate_update' history event with new GATE data.
-    Returns the number of new symbols added.
-    """
-    # Parse + dedupe (first occurrence wins — mirrors original per-row upsert order)
-    parsed: dict[str, dict] = {}
-    for sig in signals:
-        if sig.get("category") != "WATCH":
-            continue
-        symbol = sig.get("symbol")
-        if not symbol or symbol in parsed:
-            continue
-        parsed[symbol] = {
-            "gate":      _f(sig.get("gate_strength")),
-            "rank":      _f(sig.get("rank_score")),
-            "entry":     _f(sig.get("entry")),
-            "sl":        _f(sig.get("stop_loss")),
-            "t1":        _f(sig.get("t1")),
-            "signal_id": _to_uuid(sig.get("id")),
-        }
-
-    if not parsed:
-        return 0
-
-    symbols = list(parsed.keys())
-
-    # 1 query: which symbols already exist?
-    existing_rows = await conn.fetch(
-        "SELECT symbol FROM watchlist WHERE symbol = ANY($1::text[])", symbols
-    )
-    existing = {r["symbol"] for r in existing_rows}
-
-    # 1 query: multi-row upsert via UNNEST (status only set on fresh INSERT,
-    # so existing rows keep their current status — same as the old code).
-    await conn.execute(
-        """INSERT INTO watchlist
-             (symbol, source, status, gate_strength, rank_score, entry, stop_loss, t1, signal_id)
-           SELECT u.symbol, 'scanner', 'active', u.gate, u.rank, u.entry, u.sl, u.t1, u.signal_id
-           FROM UNNEST($1::text[], $2::float8[], $3::float8[], $4::float8[],
-                       $5::float8[], $6::float8[], $7::uuid[])
-                AS u(symbol, gate, rank, entry, sl, t1, signal_id)
-           ON CONFLICT (symbol) DO UPDATE SET
-               gate_strength=EXCLUDED.gate_strength,
-               rank_score=EXCLUDED.rank_score,
-               entry=EXCLUDED.entry,
-               stop_loss=EXCLUDED.stop_loss,
-               t1=EXCLUDED.t1,
-               last_checked_at=NOW(),
-               signal_id=EXCLUDED.signal_id,
-               source='scanner'""",
-        symbols,
-        [parsed[s]["gate"] for s in symbols],
-        [parsed[s]["rank"] for s in symbols],
-        [parsed[s]["entry"] for s in symbols],
-        [parsed[s]["sl"] for s in symbols],
-        [parsed[s]["t1"] for s in symbols],
-        [parsed[s]["signal_id"] for s in symbols],
-    )
-
-    # Batched history events
-    update_events = [
-        (s, json.dumps({"gate_strength": parsed[s]["gate"], "rank_score": parsed[s]["rank"]}))
-        for s in symbols if s in existing
-    ]
-    add_events = [
-        (s, json.dumps({"source": "scanner", "gate_strength": parsed[s]["gate"]}))
-        for s in symbols if s not in existing
-    ]
-    if update_events:
-        await conn.executemany(
-            """INSERT INTO watchlist_history(symbol, event, details)
-               VALUES($1, 'gate_update', $2::jsonb)""",
-            update_events,
-        )
-    if add_events:
-        await conn.executemany(
-            """INSERT INTO watchlist_history(symbol, event, to_status, details)
-               VALUES($1, 'added', 'active', $2::jsonb)""",
-            add_events,
-        )
-
-    return len(add_events)
 
 
 async def _is_circuit_breaker_active(conn: asyncpg.Connection, account_value: float) -> bool:
@@ -227,12 +135,6 @@ async def auto_create_paper_trades(
             held_positions[r["symbol"]] = r
     held_symbols = set(held_positions.keys())
 
-    wl_rows = await conn.fetch(
-        "SELECT symbol, status FROM watchlist WHERE symbol = ANY($1::text[])",
-        candidate_symbols,
-    )
-    wl_status = {r["symbol"]: r["status"] for r in wl_rows}
-
     # Current total open risk (§9: ≤ 5% of account)
     risk_row = await conn.fetchrow(
         """SELECT COALESCE(SUM((avg_entry - stop_loss) * quantity), 0) AS total_risk
@@ -321,20 +223,6 @@ async def auto_create_paper_trades(
             created    += 1
             held_symbols.add(symbol)
 
-            if wl_status.get(symbol) == "active":
-                await conn.execute(
-                    "UPDATE watchlist SET status='buy_triggered' WHERE symbol=$1",
-                    symbol,
-                )
-                await conn.execute(
-                    """INSERT INTO watchlist_history
-                       (symbol, event, from_status, to_status, details)
-                       VALUES($1,'status_change','active','buy_triggered',$2::jsonb)""",
-                    symbol,
-                    json.dumps({"auto_created": True, "entry": entry_price, "pyramid": is_pyramid}),
-                )
-                wl_status[symbol] = "buy_triggered"
-
             log.info("auto_trade_created", symbol=symbol, qty=quantity,
                      entry=entry_price, pyramid=is_pyramid)
 
@@ -402,7 +290,6 @@ async def auto_exit_positions(conn: asyncpg.Connection, redis) -> int:
                 effective_sl = trailing_sl or sl
                 if effective_sl and price <= effective_sl:
                     await execute_sell(conn, position_id, qty, price, exit_reason="trailing_stop")
-                    await _update_watchlist(conn, symbol, "sl_hit", "trailing_stop", price)
                     closed += 1
                     log.info("trailing_stop_triggered", symbol=symbol, price=price, ema20=ema20)
 
@@ -428,8 +315,6 @@ async def auto_exit_positions(conn: asyncpg.Connection, redis) -> int:
                     # shares are risk-free and a pyramid tranche becomes eligible next scan.
                     if exit_reason == "t1_hit" and pos["avg_entry"]:
                         await update_trailing_sl(conn, position_id, float(pos["avg_entry"]), "breakeven")
-                    new_wl = "sl_hit" if exit_reason == "sl_hit" else "target_hit"
-                    await _update_watchlist(conn, symbol, new_wl, exit_reason, price)
                     closed += 1
                     log.info("auto_exit_triggered", symbol=symbol, reason=exit_reason, price=price)
 
@@ -489,22 +374,6 @@ def _has_upcoming_event_sync(symbol: str, days: int) -> bool:
         return False
     except Exception:
         return False
-
-
-async def _update_watchlist(
-    conn, symbol: str, new_status: str, exit_reason: str, price: float
-) -> None:
-    await conn.execute(
-        "UPDATE watchlist SET status=$1 WHERE symbol=$2",
-        new_status, symbol,
-    )
-    await conn.execute(
-        """INSERT INTO watchlist_history
-           (symbol, event, from_status, to_status, details)
-           VALUES($1,'status_change','buy_triggered',$2,$3::jsonb)""",
-        symbol, new_status,
-        json.dumps({"exit_reason": exit_reason, "exit_price": price}),
-    )
 
 
 # ---------------------------------------------------------------------------

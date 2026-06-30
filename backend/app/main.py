@@ -20,7 +20,7 @@ from app.exceptions import GATEBaseError
 from app.services.ws_manager import manager
 from app.routers import (
     signals, paper_trading, scans, dashboard,
-    universe, watchlist, market, backtests, stock_master, internal,
+    universe, market, backtests, stock_master, internal,
 )
 
 # Structured logging — pretty console in dev; swap ConsoleRenderer for JSONRenderer in prod
@@ -187,7 +187,6 @@ for prefix in ("/api", "/api/v1"):
     app.include_router(signals.router,        prefix=f"{prefix}/signals")   # legacy; unmounted in M5
     app.include_router(paper_trading.router,  prefix=f"{prefix}/paper-trading")
     app.include_router(universe.router,       prefix=f"{prefix}/universe")
-    app.include_router(watchlist.router,      prefix=f"{prefix}/watchlist")
     app.include_router(market.router,         prefix=f"{prefix}/market")
     app.include_router(backtests.router,      prefix=f"{prefix}/backtests")
     app.include_router(stock_master.router,   prefix=f"{prefix}/stocks")
