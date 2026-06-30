@@ -135,10 +135,6 @@ function streamingToSignal(s: StreamingSignal, idx: number): Signal {
     range_low:              null,
     breakout_level:         null,
     measured_move:          null,
-    rs_score:               null,
-    sector_momentum:        null,
-    accumulation_score:     null,
-    fundamental_score:      null,
     volume_buildup:         null,
     created_at:             new Date().toISOString(),
   };
