@@ -1,0 +1,4 @@
+
+1. Duplicate data are visible
+
+2. pagination change or on back, data is reset which is not expected. 
