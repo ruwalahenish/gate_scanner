@@ -212,25 +212,23 @@ SETUP_EXPIRY_BARS = 7
 # prior approaches to the same level that never closed decisively above it.
 LEVEL_FRESHNESS_LOOKBACK      = 150   # bars before the current box to scan
 LEVEL_FRESHNESS_TOLERANCE     = 0.02  # High within 2% of the level counts as a "test"
-LEVEL_FRESHNESS_MAX_FAILURES  = 1     # more than this many failed tests → reject as chased
+LEVEL_FRESHNESS_MAX_FAILURES  = 2     # more than this many failed tests → reject as chased
 
 # Minimum blended per-TF GATE score (consolidation tightness + breakout proximity +
 # volume pattern) for the gate to be considered genuinely "shut." Drives both the
 # BUY-path is_gate flag and WATCH eligibility, so a watched setup is held to the
 # exact same structural bar as an actionable one — just not broken out yet.
-GATE_SCORE_THRESHOLD = 55.0
+# 55 was too strict — 45 allows mild contractions with strong breakout proximity.
+GATE_SCORE_THRESHOLD = 45.0
 
 # Volume pickup (recent 3-bar avg / base avg) required to call a breakout's volume
-# "strong confirmation," not just a mild uptick.
-VOLUME_BUILDUP_MIN_RATIO = 1.4
+# "strong confirmation," not just a mild uptick. 1.3+ was too strict.
+VOLUME_BUILDUP_MIN_RATIO = 1.15
 
 # Breakout candle range must be at least this multiple of ATR(14) to count as
 # "bigger-than-usual" (§6C) — excludes weak/doji/false-breakout candles.
-BREAKOUT_CANDLE_ATR_MULT = 1.3
-
-# Hard floor on the composite confidence score (see signal_engine._confidence) —
-# a signal below this is rejected outright rather than merely ranked lower.
-MIN_CONFIDENCE_SCORE = 65.0
+# 1.5 was too strict; 1.2 still excludes dojis/pins.
+BREAKOUT_CANDLE_ATR_MULT = 1.2
 
 # -----------------------------------------------------------------------------
 # FIBONACCI EXTENSION TARGETS (anchored to consolidation base, §10)
@@ -248,8 +246,8 @@ FIB_EXT_T3 = 2.618   # extended run
 # NOTE: POSITIONAL (1h–2h setups) requires "60m" in SCAN_TIMEFRAMES to activate.
 # -----------------------------------------------------------------------------
 CATEGORY_RULES = {
-    "INVESTMENT":  {"weekly_bull": True,  "monthly_bull": True,  "min_score": 75},
-    "SWING":       {"daily_bull": True,   "min_gate": 65,        "min_score": 70},
+    "INVESTMENT":  {"weekly_bull": True,  "monthly_bull": True,  "min_score": 70},
+    "SWING":       {"daily_bull": True,   "min_gate": 55,        "min_score": 60},
     "POSITIONAL":  {"hourly_bull": True,  "min_gate": 45,        "min_score": 50},
     # WATCH's quality bar is GATE_SCORE_THRESHOLD (same "gate shut" cutoff as an
     # actionable gate) enforced directly in classifier.py, not a separate number here.
@@ -260,9 +258,7 @@ CATEGORY_RULES = {
 # -----------------------------------------------------------------------------
 # RISK / SIGNAL FILTERS
 # -----------------------------------------------------------------------------
-MIN_RR_RATIO = 2.0           # required risk-reward ("sufficient upside potential remaining");
-                              # strategy §16 states 1.5 as an absolute floor — this scanner-level
-                              # bar is deliberately higher to surface only high-conviction setups
+MIN_RR_RATIO = 1.5           # minimum acceptable risk-reward at T1 (strategy §16 floor)
 MIN_AVG_VOLUME = 100_000     # liquidity floor (20-bar avg daily volume)
 MIN_PRICE = 20.0             # avoid penny stocks
 MAX_SL_DISTANCE_PCT = 0.08   # SL no further than ~8% from entry for daily swing trades

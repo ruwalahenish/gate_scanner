@@ -88,9 +88,10 @@ async def run_scan_async(
 
     Parameters
     ----------
-    on_batch : async coroutine callable(batch: list, done: int, total: int)
+    on_batch : async coroutine callable(batch: list, done: int, total: int) -> bool | None
                Awaited after each batch is ranked. May perform DB writes and
                Redis publishes.  Must not raise — wrap in try/except internally.
+               Returning a truthy value cancels the scan after this batch.
     on_phase : async coroutine callable(phase: str, message: str)
                Awaited when the pipeline enters a new major phase (resolving
                universe, fetching market data, analysing). Used to publish
@@ -118,9 +119,11 @@ async def run_scan_async(
         def sync_cb(batch: list, done: int, total: int):
             future = asyncio.run_coroutine_threadsafe(on_batch(batch, done, total), loop)
             try:
-                future.result(timeout=30)  # wait for the async persist+publish to finish
+                # Propagate the async callback's return value (truthy = cancel
+                # requested) so pipeline.run_scan() can stop the loop early.
+                return future.result(timeout=30)
             except Exception:
-                pass  # never let a callback error abort the pipeline
+                return False  # never let a callback error abort the pipeline
 
     sync_phase_cb = None
     if on_phase is not None:

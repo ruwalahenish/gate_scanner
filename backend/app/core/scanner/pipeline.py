@@ -13,8 +13,9 @@ Progressive streaming
 Pass an `on_batch` callable to receive results in chunks as they are produced,
 rather than waiting for the full scan to complete:
 
-    def on_batch(ranked_batch: list[dict], done: int, total: int) -> None:
+    def on_batch(ranked_batch: list[dict], done: int, total: int) -> bool | None:
         ...  # called after each batch of ~batch_size symbols is ranked
+        return True  # returning a truthy value cancels the scan after this batch
 
 `on_batch` is called from inside the thread-pool worker (not the asyncio event
 loop), so it must be thread-safe.  A common pattern is to push onto an
@@ -92,7 +93,7 @@ def run_scan(
     out_dir: str = "./gate_output",
     detail_symbols: Optional[List[str]] = None,
     all_equity: bool = False,
-    on_batch: Optional[Callable[[list, int, int], None]] = None,
+    on_batch: Optional[Callable[[list, int, int], Optional[bool]]] = None,
     batch_size: int = _BATCH_SIZE,
     on_phase: Optional[Callable[[str, str], None]] = None,
 ) -> List[Dict]:
@@ -160,7 +161,9 @@ def run_scan(
             # so the progress bar in the UI advances correctly.
             if on_batch:
                 try:
-                    on_batch([], done_count, total)
+                    if on_batch([], done_count, total):
+                        logger.info("Scan cancelled by user at %d/%d", done_count, total)
+                        break
                 except Exception:
                     logger.exception("on_batch callback failed (filtered) at %d", done_count)
             continue
@@ -179,7 +182,9 @@ def run_scan(
 
         if on_batch:
             try:
-                on_batch(ranked, done_count, total)
+                if on_batch(ranked, done_count, total):
+                    logger.info("Scan cancelled by user at %d/%d", done_count, total)
+                    break
             except Exception:
                 logger.exception("on_batch callback failed for %s", sym)
 

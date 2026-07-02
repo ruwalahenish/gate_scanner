@@ -278,6 +278,16 @@ async def stop_scan(
     # Mark as failed in DB
     await update_scan_status(conn, scan_id, "failed", error_message="Stopped by user")
 
+    # Cooperative cancellation flag — the running pipeline (in the Celery worker
+    # or the asyncio fallback) checks this on its per-symbol callback and breaks
+    # out of the scan loop. Without this, marking the DB row "failed" is purely
+    # cosmetic: the worker keeps churning through the rest of the universe and
+    # eventually overwrites this row back to "done" when it finishes.
+    try:
+        await redis.set(f"scan:cancel:{scan_id}", "1", ex=SCAN_LOCK_TTL)
+    except Exception:
+        pass
+
     # Release distributed lock so new scans can start immediately
     try:
         await redis.delete(SCAN_LOCK_KEY)

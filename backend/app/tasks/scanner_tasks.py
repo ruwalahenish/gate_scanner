@@ -69,6 +69,7 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
     total_inserted = 0
     universe_total = 0  # captured from batch callbacks — written to scans.universe_size
     final_status = "failed"
+    cancel_key = f"scan:cancel:{scan_id}"
 
     # Guarantee the scan row exists before the pipeline starts.
     # The router already inserts it, but NeonDB's serverless cold-start can create a
@@ -125,6 +126,13 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
                 "timestamp": _now(),
             })
 
+        # Cooperative cancellation — set by POST /scans/{id}/stop. Checked once
+        # per batch rather than per-symbol to keep the Redis round trip cheap.
+        try:
+            return bool(await redis.exists(cancel_key))
+        except Exception:
+            return False
+
     async def on_phase(phase: str, message: str):
         """Called when the pipeline enters a new major phase — broadcast so the UI can show it."""
         await _publish("scan:progress", {
@@ -146,39 +154,54 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
 
         await run_scan_async(universe, mode, on_batch=on_batch, on_phase=on_phase)
         duration = time.perf_counter() - t0
-        final_status = "done"
 
-        async with db_pool.acquire() as conn:
-            await update_scan_status(
-                conn, sid, "done",
-                signals_found=total_inserted,
-                universe_size=universe_total,
-                duration_sec=round(duration, 2),
-            )
-
-        # Bust the server-side signals list cache BEFORE publishing scan.complete so
-        # that the browser's immediate refetch (triggered by the WS event) always hits
-        # the DB instead of a stale 30-second Redis cache.
+        # If the user stopped the scan mid-flight, /scans/{id}/stop already marked
+        # the row "failed" / "Stopped by user" — don't let this late completion
+        # overwrite that with "done", and don't publish scan.complete (which would
+        # resurrect the "scan running" UI state on the frontend).
+        cancelled = False
         try:
-            keys = await redis.keys("signals:list:*")
-            if keys:
-                await redis.delete(*keys)
-            await redis.delete("signals:counts:latest")
+            cancelled = bool(await redis.exists(cancel_key))
         except Exception:
             pass
 
-        await _publish("scan:complete", {
-            "type": "scan.complete",
-            "payload": {"scan_id": scan_id, "signals_count": total_inserted},
-            "timestamp": _now(),
-        })
-        log.info("scan_completed", scan_id=scan_id, signals=total_inserted, duration=round(duration, 1))
+        if cancelled:
+            final_status = "cancelled"
+            log.info("scan_cancelled", scan_id=scan_id, signals=total_inserted, duration=round(duration, 1))
+        else:
+            final_status = "done"
 
-        # Bust dashboard cache so next request reflects new data immediately
-        try:
-            await redis.delete("dashboard:stats")
-        except Exception:
-            pass
+            async with db_pool.acquire() as conn:
+                await update_scan_status(
+                    conn, sid, "done",
+                    signals_found=total_inserted,
+                    universe_size=universe_total,
+                    duration_sec=round(duration, 2),
+                )
+
+            # Bust the server-side signals list cache BEFORE publishing scan.complete so
+            # that the browser's immediate refetch (triggered by the WS event) always hits
+            # the DB instead of a stale 30-second Redis cache.
+            try:
+                keys = await redis.keys("signals:list:*")
+                if keys:
+                    await redis.delete(*keys)
+                await redis.delete("signals:counts:latest")
+            except Exception:
+                pass
+
+            await _publish("scan:complete", {
+                "type": "scan.complete",
+                "payload": {"scan_id": scan_id, "signals_count": total_inserted},
+                "timestamp": _now(),
+            })
+            log.info("scan_completed", scan_id=scan_id, signals=total_inserted, duration=round(duration, 1))
+
+            # Bust dashboard cache so next request reflects new data immediately
+            try:
+                await redis.delete("dashboard:stats")
+            except Exception:
+                pass
 
     except Exception as exc:
         await _publish("scan:progress", {
@@ -189,8 +212,11 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
         raise
 
     finally:
-        # Always update scan status (even if it was already set to done above)
-        if final_status != "done":
+        # Always update scan status (even if it was already set to done above).
+        # "cancelled" means /scans/{id}/stop already wrote "failed" / "Stopped by
+        # user" — leave that message alone rather than overwriting it with a
+        # bare "failed" (no error_message) here.
+        if final_status not in ("done", "cancelled"):
             try:
                 async with db_pool.acquire() as conn:
                     await update_scan_status(conn, sid, "failed")
@@ -200,6 +226,7 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
         if redis is not None:
             try:
                 await redis.delete("scan:running")
+                await redis.delete(cancel_key)
             except Exception:
                 pass
         if db_pool is not None:

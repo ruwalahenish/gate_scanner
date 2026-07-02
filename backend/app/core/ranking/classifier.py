@@ -215,10 +215,13 @@ def classify(
             "reasoning": f"1h bullish, {ready} (GATE {hourly_gate:.0f}) — positional buy.",
         }
 
-    # A confirmed breakout signal that still doesn't clear any category's quality
-    # bar is exactly the "borderline/uncertain candidate" this scanner excludes
-    # from both WATCH and BUY entirely — not silently downgraded to either.
+    # Signal exists but scores below category floors → SWING if daily bullish, else WATCH
+    if _is_bullish_tf(daily):
+        return {
+            "category": "SWING",
+            "reasoning": f"Daily bullish, {ready}; rank {rank_score:.0f} — swing buy.",
+        }
     return {
-        "category": "IGNORE",
-        "reasoning": f"{ready} but below the quality bar for any BUY category (GATE {daily_gate:.0f}, rank {rank_score:.0f}).",
+        "category": "WATCH",
+        "reasoning": f"{ready} without higher-TF confirmation — watching for daily breakout.",
     }

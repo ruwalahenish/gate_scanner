@@ -366,13 +366,6 @@ def generate_signal(
         fib_confluence       = fib_conf,
     )
 
-    # Hard confidence floor — a technically-legal setup with a low composite
-    # confidence is exactly the "borderline/uncertain candidate" quality over
-    # quantity is meant to exclude, so reject it outright rather than just
-    # ranking it lower.
-    if confidence < config.MIN_CONFIDENCE_SCORE:
-        return None
-
     reasoning = _build_reasoning(
         symbol, side, sig_tf, rng, sig_analysis, mtf_sum, volume_buildup, fib_conf, prior_failures,
     )

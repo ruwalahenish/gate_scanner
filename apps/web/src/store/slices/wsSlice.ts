@@ -79,13 +79,22 @@ export const wsSlice = createSlice({
       state.scanPhase       = action.payload.phase;
       state.scanPhaseMessage = action.payload.message;
     },
-    scanProgressReceived: (state, action: PayloadAction<ScanProgress>) => {
-      state.scanProgress = action.payload;
+    scanProgressReceived: (state, action: PayloadAction<ScanProgress & { scan_id?: string }>) => {
+      // Ignore stale progress from a scan that isn't the one we're tracking —
+      // e.g. an orphaned worker still churning through a scan the user already
+      // stopped, whose late events would otherwise flip isScanning back to true.
+      if (state.currentScanId && action.payload.scan_id && action.payload.scan_id !== state.currentScanId) {
+        return;
+      }
+      state.scanProgress = { done: action.payload.done, total: action.payload.total };
     },
     scanBatchReceived: (
       state,
-      action: PayloadAction<{ signals: StreamingSignal[]; done: number; total: number }>
+      action: PayloadAction<{ scan_id?: string; signals: StreamingSignal[]; done: number; total: number }>
     ) => {
+      if (state.currentScanId && action.payload.scan_id && action.payload.scan_id !== state.currentScanId) {
+        return;
+      }
       const incoming = action.payload.signals;
       // Bound the display array to the last MAX_STREAMING_SIGNALS items.
       const combined = [...state.streamingSignals, ...incoming];
@@ -107,6 +116,11 @@ export const wsSlice = createSlice({
       state,
       action: PayloadAction<{ scan_id: string; signals_count: number }>
     ) => {
+      // A scan the user already stopped (currentScanId cleared) shouldn't be
+      // able to post a late completion summary for itself.
+      if (state.currentScanId && action.payload.scan_id !== state.currentScanId) {
+        return;
+      }
       const duration = state.scanStartedAt
         ? (Date.now() - state.scanStartedAt) / 1000
         : 0;

@@ -88,6 +88,7 @@ function handleMessage(
 
     case "scan.progress":
       dispatch(scanProgressReceived({
+        scan_id: msg.payload.scan_id as string | undefined,
         done:  msg.payload.symbols_done  as number,
         total: msg.payload.symbols_total as number,
       }));
@@ -95,6 +96,7 @@ function handleMessage(
 
     case "scan.batch":
       dispatch(scanBatchReceived({
+        scan_id: msg.payload.scan_id as string | undefined,
         signals: (msg.payload.signals as []) ?? [],
         done:    msg.payload.done  as number,
         total:   msg.payload.total as number,
