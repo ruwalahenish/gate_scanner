@@ -50,7 +50,7 @@ def _signal_tf(mtf_summary: Dict, mtf_data: Optional[Dict] = None) -> Optional[s
     return leading
 
 
-def _measured_move_targets(
+def measured_move_targets(
     entry: float,
     range_high: float,
     range_low: float,
@@ -103,7 +103,7 @@ def _gate_composite(
     return float(max(0.0, min(100.0, score)))
 
 
-def _rr(entry: float, sl: float, target: float, side: str) -> float:
+def compute_rr(entry: float, sl: float, target: float, side: str) -> float:
     if side == "BUY":
         risk   = entry - sl
         reward = target - entry
@@ -248,11 +248,9 @@ def generate_signal(
 
     # ---- Level freshness: reject breakouts at a level that has already failed
     # repeatedly nearby (chased/whipsawed resistance, not a fresh gate) ----
-    # +1 because the box (duration_bars) excludes today's breakout bar itself.
-    prior_failures = range_engine.count_level_tests(
-        df_sig, range_high, config.LEVEL_FRESHNESS_LOOKBACK,
-        config.LEVEL_FRESHNESS_TOLERANCE, exclude_bars=int(rng.get("duration_bars") or 0) + 1,
-    )
+    # Precomputed by range_engine.analyze_range() so classifier.py's WATCH check
+    # can read the same number without needing raw OHLCV access.
+    prior_failures = int(rng.get("prior_level_failures") or 0)
     if prior_failures > config.LEVEL_FRESHNESS_MAX_FAILURES:
         return None
 
@@ -280,11 +278,9 @@ def generate_signal(
         return None
 
     # ---- Breakout candle must be bigger-than-usual (§6C / §7) ----
-    # "Contraction → expansion" signature: candle range > 1.2× ATR.
-    # 1.5 was too strict — quiet breakouts on low-volatility stocks were filtered
-    # even when all other GATE conditions were met; 1.2× still excludes dojis/pins.
+    # "Contraction → expansion" signature: candle range > BREAKOUT_CANDLE_ATR_MULT × ATR.
     candle_range = float(df_sig["High"].iloc[-1]) - float(df_sig["Low"].iloc[-1])
-    if candle_range < 1.2 * float(atr_val):
+    if candle_range < config.BREAKOUT_CANDLE_ATR_MULT * float(atr_val):
         return None  # doji or narrow candle on breakout = not convincing
 
     swing = sig_analysis["structure"]["swing_levels"]
@@ -306,16 +302,16 @@ def generate_signal(
         return None
 
     # ---- Targets: measured move off the box ----
-    targets = _measured_move_targets(entry, range_high, range_low, sig_tf)
+    targets = measured_move_targets(entry, range_high, range_low, sig_tf)
 
     # ---- RR ratios vs the structural SL ----
     # Gate on the primary measured-move target (T2): risk to box support must be
     # repaid at least MIN_RR_RATIO times by the 1.5x measured move. T1 (1x) is the
     # first scale-out and may sit below the threshold by design.
     rr = {
-        "T1": _rr(entry, sl, targets["T1"], side),
-        "T2": _rr(entry, sl, targets["T2"], side),
-        "T3": _rr(entry, sl, targets["T3"], side),
+        "T1": compute_rr(entry, sl, targets["T1"], side),
+        "T2": compute_rr(entry, sl, targets["T2"], side),
+        "T3": compute_rr(entry, sl, targets["T3"], side),
     }
     if rr["T2"] < config.MIN_RR_RATIO:
         return None
@@ -369,6 +365,13 @@ def generate_signal(
         bounce_sequence_valid= bounce_seq_valid,
         fib_confluence       = fib_conf,
     )
+
+    # Hard confidence floor — a technically-legal setup with a low composite
+    # confidence is exactly the "borderline/uncertain candidate" quality over
+    # quantity is meant to exclude, so reject it outright rather than just
+    # ranking it lower.
+    if confidence < config.MIN_CONFIDENCE_SCORE:
+        return None
 
     reasoning = _build_reasoning(
         symbol, side, sig_tf, rng, sig_analysis, mtf_sum, volume_buildup, fib_conf, prior_failures,

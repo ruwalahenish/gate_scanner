@@ -203,7 +203,23 @@ def count_level_tests(
 
 
 def analyze_range(df: pd.DataFrame, lookback: Optional[int] = None) -> Dict:
-    """Convenience: detect the box and classify the breakout state in one call."""
+    """
+    Convenience: detect the box, classify the breakout state, and count prior
+    failed tests of the box's range_high in one call.
+
+    prior_level_failures is computed here (not just when a signal fires) so both
+    signal_engine's BUY hard-gate and classifier's WATCH eligibility check can
+    read it directly from the per-TF gate/range dict without recomputing it or
+    needing raw OHLCV access.
+    """
     box = detect_consolidation(df, lookback)
     state = breakout_state(df, box)
-    return {**box, **state}
+    prior_failures = 0
+    if box.get("valid") and box.get("range_high"):
+        # +1 because the box (duration_bars) already excludes the current bar.
+        exclude_bars = int(box.get("duration_bars") or 0) + 1
+        prior_failures = count_level_tests(
+            df, box["range_high"], config.LEVEL_FRESHNESS_LOOKBACK,
+            config.LEVEL_FRESHNESS_TOLERANCE, exclude_bars=exclude_bars,
+        )
+    return {**box, **state, "prior_level_failures": prior_failures}

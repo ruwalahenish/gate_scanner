@@ -154,7 +154,10 @@
       "Bash(tasklist //FI \"IMAGENAME eq python.exe\" //FO CSV)",
       "Bash(netstat -ano)",
       "Bash(wmic process *)",
-      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='python.exe' OR Name='node.exe'\" | Where-Object { $_.CommandLine -match 'dev\\\\.py|celery|uvicorn|next' } | Select-Object ProcessId, ParentProcessId, @{N='Cmd';E={$_.CommandLine.Substring\\(0,[Math]::Min\\(120,$_.CommandLine.Length\\)\\)}} | Format-Table -AutoSize)"
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='python.exe' OR Name='node.exe'\" | Where-Object { $_.CommandLine -match 'dev\\\\.py|celery|uvicorn|next' } | Select-Object ProcessId, ParentProcessId, @{N='Cmd';E={$_.CommandLine.Substring\\(0,[Math]::Min\\(120,$_.CommandLine.Length\\)\\)}} | Format-Table -AutoSize)",
+      "Bash(python -m py_compile app/core/analysis/contraction_engine.py app/core/config.py)",
+      "Bash(python -m py_compile app/core/analysis/range_engine.py)",
+      "Bash(python -m py_compile app/core/ranking/classifier.py)"
     ],
     "additionalDirectories": [
       "\\mnt\\d\\gate-scanner",
