@@ -246,6 +246,16 @@ def generate_signal(
     if state == "BREAKOUT_CONFIRMED" and not volume_buildup:
         return None
 
+    # ---- Level freshness: reject breakouts at a level that has already failed
+    # repeatedly nearby (chased/whipsawed resistance, not a fresh gate) ----
+    # +1 because the box (duration_bars) excludes today's breakout bar itself.
+    prior_failures = range_engine.count_level_tests(
+        df_sig, range_high, config.LEVEL_FRESHNESS_LOOKBACK,
+        config.LEVEL_FRESHNESS_TOLERANCE, exclude_bars=int(rng.get("duration_bars") or 0) + 1,
+    )
+    if prior_failures > config.LEVEL_FRESHNESS_MAX_FAILURES:
+        return None
+
     # ---- Entry: current close, which is just above range_high for BREAKOUT_CONFIRMED ----
     entry = last_close
 
@@ -286,7 +296,7 @@ def generate_signal(
     sl_tf = config.SL_TIMEFRAME_MAP.get(sig_tf)
     sl = None
     if sl_tf and sl_tf in mtf_data and not mtf_data[sl_tf].empty:
-        ema200_sl = ind.ema(mtf_data[sl_tf], 200).iloc[-1]
+        ema200_sl = ind.ema(mtf_data[sl_tf]["Close"], 200).iloc[-1]
         if not pd.isna(ema200_sl) and ema200_sl > 0:
             sl = float(ema200_sl) * (1 - 0.005)  # 0.5% buffer below the line
     if sl is None or sl >= entry:
@@ -335,7 +345,12 @@ def generate_signal(
             return None  # setup loaded too long without breaking — expired
 
     bounce_seq_valid = sig_ema.get("bounce_sequence_valid", True)
-    fib_conf = _fib_confluence(entry, swing_high, swing_low)
+    # Anchor Fib confluence to the SAME leg validated as touching EMA200 above
+    # (§3: Fibonacci is "drawn on the last big up-move" — the one being corrected),
+    # not an independently-detected fractal swing that may reference a different leg.
+    fib_swing_high = sig_ema.get("correction_swing_high") or swing_high
+    fib_swing_low = sig_ema.get("correction_swing_low") or swing_low
+    fib_conf = _fib_confluence(entry, fib_swing_high, fib_swing_low)
 
     # ---- Composite GATE strength (technical gate + trend alignment) ----
     technical_gate = (sig_analysis.get("gate", {}) or {}).get("score", 0.0)
@@ -356,7 +371,7 @@ def generate_signal(
     )
 
     reasoning = _build_reasoning(
-        symbol, side, sig_tf, rng, sig_analysis, mtf_sum, volume_buildup, fib_conf,
+        symbol, side, sig_tf, rng, sig_analysis, mtf_sum, volume_buildup, fib_conf, prior_failures,
     )
 
     return {
@@ -394,11 +409,12 @@ def generate_signal(
         "atr":                    float(atr_val),
         "structure_quality":      sig_analysis["structure"]["structure_quality"],
         "phase":                  sig_analysis["structure"]["phase"],
+        "prior_level_failures":   prior_failures,
     }
 
 
 def _build_reasoning(
-    symbol, side, sig_tf, rng, sig_analysis, mtf_sum, volume_buildup, fib_conf,
+    symbol, side, sig_tf, rng, sig_analysis, mtf_sum, volume_buildup, fib_conf, prior_failures=0,
 ) -> str:
     parts = []
     ema    = sig_analysis["ema"]
@@ -421,6 +437,9 @@ def _build_reasoning(
 
     if fib_conf:
         parts.append("Fibonacci confluence at the breakout level.")
+
+    if prior_failures > 0:
+        parts.append(f"Note: this level was tested {prior_failures} time(s) recently without breaking.")
 
     parts.append(
         f"MTF alignment {mtf_sum['alignment']['alignment_pct']:.0f}% "

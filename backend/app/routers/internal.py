@@ -84,29 +84,3 @@ async def trigger_fundamentals(
     background_tasks.add_task(_sync_async, ["fundamentals"])
     _log.info("internal: fundamentals queued as background task")
     return {"queued": "fundamentals"}
-
-
-# ── Paper trade monitor — every 5 min during market hours ────────────────────
-@router.post("/tasks/monitor-trades")
-async def trigger_monitor_trades(
-    background_tasks: BackgroundTasks,
-    authorization: str | None = Header(None),
-):
-    _require_auth(authorization)
-    from app.tasks.trading_tasks import _monitor_async
-    background_tasks.add_task(_monitor_async)
-    _log.info("internal: monitor-trades queued as background task")
-    return {"queued": "monitor-trades"}
-
-
-# ── Live price broadcast — every 2 min during market hours ───────────────────
-@router.post("/tasks/broadcast-prices")
-async def trigger_broadcast_prices(
-    background_tasks: BackgroundTasks,
-    authorization: str | None = Header(None),
-):
-    _require_auth(authorization)
-    from app.tasks.trading_tasks import _broadcast_prices_async
-    background_tasks.add_task(_broadcast_prices_async)
-    _log.info("internal: broadcast-prices queued as background task")
-    return {"queued": "broadcast-prices"}

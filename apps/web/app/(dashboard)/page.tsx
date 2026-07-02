@@ -4,7 +4,7 @@ import {
   Divider, LinearProgress, Stack, CircularProgress,
 } from "@mui/material";
 import {
-  TrendingUp, SwapHoriz, EmojiEvents,
+  TrendingUp,
   CheckCircleOutline, ErrorOutline, AccessTime,
 } from "@mui/icons-material";
 import { useSelector } from "react-redux";
@@ -13,16 +13,14 @@ import { StatCard } from "@/components/ui/StatCard";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageError } from "@/components/ui/PageError";
-import { PnlBadge } from "@/components/ui/PnlBadge";
 import { CategoryChip } from "@/components/ui/CategoryChip";
 import { StockLink } from "@/components/ui/StockLink";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useGetDashboardQuery } from "@/store/api/scannerApi";
 import { formatIST, formatPrice, formatRR } from "@/lib/formatters";
-import { STATUS_COLORS, EXIT_LABEL } from "@/lib/constants";
+import { STATUS_COLORS } from "@/lib/constants";
 import {
   selectScanProgress,
-  selectLastPostProcess,
   selectHasRealProgress,
   selectScanProgressPct,
 } from "@/store/selectors";
@@ -131,111 +129,6 @@ const OpportunitiesSection = memo(function OpportunitiesSection({ items }: { ite
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Section: Recent Paper Trades
-// ─────────────────────────────────────────────────────────────────────────────
-
-const RecentTradesSection = memo(function RecentTradesSection({ items }: { items: DashboardData["recent_trades"] }) {
-  type TradeRow = {
-    id: string; symbol: string; pnl_abs?: number | null;
-    pnl_pct?: number | null; exit_reason?: string | null; executed_at?: string;
-  };
-
-  const trades = items as TradeRow[];
-
-  if (!trades || trades.length === 0) {
-    return (
-      <EmptyState
-        title="No paper trades yet"
-        description="Trades are created automatically from BUY signals"
-      />
-    );
-  }
-
-  return (
-    <Stack spacing={0}>
-      {/* Column headers */}
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: "80px 1fr 80px 70px",
-          gap: 1,
-          px: 0.5,
-          pb: 0.5,
-        }}
-      >
-        {["Symbol", "Exit Reason", "P&L", "Date"].map((h) => (
-          <Typography key={h} variant="caption" color="text.disabled" textAlign={h === "Symbol" || h === "Exit Reason" ? "left" : "right"}>
-            {h}
-          </Typography>
-        ))}
-      </Box>
-      {trades.map((t) => {
-        const isWin = (t.pnl_abs ?? 0) >= 0;
-        return (
-          <Box
-            key={t.id}
-            sx={{
-              display: "grid",
-              gridTemplateColumns: "80px 1fr 80px 70px",
-              alignItems: "center",
-              gap: 1,
-              py: 0.9,
-              px: 0.5,
-              borderBottom: "1px solid rgba(255,255,255,0.04)",
-              "&:last-child": { borderBottom: "none" },
-              "&:hover": { bgcolor: "rgba(255,255,255,0.025)", borderRadius: 1 },
-            }}
-          >
-            <StockLink symbol={t.symbol} variant="body2" fontWeight={700} noWrap />
-            <Typography variant="caption" color="text.secondary" noWrap>
-              {EXIT_LABEL[t.exit_reason ?? ""] ?? t.exit_reason ?? "—"}
-            </Typography>
-            <Typography
-              variant="caption"
-              fontWeight={600}
-              textAlign="right"
-              color={isWin ? "success.main" : "error.main"}
-              noWrap
-            >
-              {t.pnl_abs != null ? `${isWin ? "+" : ""}${formatPrice(t.pnl_abs, 0)}` : "—"}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" textAlign="right" noWrap>
-              {t.executed_at ? formatIST(t.executed_at) : "—"}
-            </Typography>
-          </Box>
-        );
-      })}
-    </Stack>
-  );
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Section: Paper Trading P&L mini-panel
-// ─────────────────────────────────────────────────────────────────────────────
-
-const PaperTradingPanel = memo(function PaperTradingPanel({ pt }: { pt: DashboardData["paper_trading"] }) {
-  return (
-    <Stack spacing={0.6}>
-      <Typography variant="caption" color="text.secondary" fontWeight={600} mb={0.3}>
-        PAPER TRADING
-      </Typography>
-      {[
-        { label: "Total P&L",      value: <PnlBadge pnl={pt.total_pnl} variant="caption" showIcon /> },
-        { label: "Realized",       value: <PnlBadge pnl={pt.realized_pnl} variant="caption" /> },
-        { label: "Unrealized",     value: <PnlBadge pnl={pt.unrealized_pnl} variant="caption" /> },
-        { label: "Win Rate",       value: <Typography variant="caption" fontWeight={600}>{pt.win_rate.toFixed(1)}%</Typography> },
-        { label: "Open Positions", value: <Typography variant="caption" fontWeight={600}>{pt.open_positions}</Typography> },
-      ].map(({ label, value }) => (
-        <Box key={label} display="flex" justifyContent="space-between" alignItems="center">
-          <Typography variant="caption" color="text.secondary">{label}</Typography>
-          {value}
-        </Box>
-      ))}
-    </Stack>
-  );
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Section: System Health mini-panel
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -272,12 +165,6 @@ const SystemHealthPanel = memo(function SystemHealthPanel({ health, scanner }: {
           </Typography>
         </Box>
       )}
-      <Box display="flex" justifyContent="space-between">
-        <Typography variant="caption" color="text.secondary">Backtests</Typography>
-        <Typography variant="caption" fontWeight={600}>
-          —
-        </Typography>
-      </Box>
     </Stack>
   );
 });
@@ -293,7 +180,6 @@ export default function DashboardPage() {
   });
 
   const scanProgress    = useSelector(selectScanProgress);
-  const lastProcess     = useSelector(selectLastPostProcess);
   const hasRealProgress = useSelector(selectHasRealProgress);
   const progressPct     = useSelector(selectScanProgressPct);
 
@@ -317,17 +203,6 @@ export default function DashboardPage() {
           value={hasRealProgress ? progressPct : undefined}
           sx={{ height: 4, borderRadius: 2 }}
         />
-      </CardContent>
-    </Card>
-  ) : null;
-
-  // ── Post-process notification ──────────────────────────────────────────
-  const PostProcessBanner = lastProcess && !scanProgress && lastProcess.trades_created > 0 ? (
-    <Card sx={{ mb: 2, bgcolor: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.15)" }}>
-      <CardContent sx={{ py: 1, "&:last-child": { pb: 1 } }}>
-        <Typography variant="caption" color="success.light">
-          Last scan: {lastProcess.trades_created} paper trade{lastProcess.trades_created !== 1 ? "s" : ""} created automatically
-        </Typography>
       </CardContent>
     </Card>
   ) : null;
@@ -369,7 +244,7 @@ export default function DashboardPage() {
 
   if (!data) return null;
 
-  const { scanner, paper_trading, backtesting, recent_opportunities, recent_trades, system_health } = data;
+  const { scanner, recent_opportunities, system_health } = data;
 
   // ── No scan yet — onboarding state ────────────────────────────────────
   if (!scanner.last_scan_at) {
@@ -399,15 +274,9 @@ export default function DashboardPage() {
             Last scan: {formatIST(scanner.last_scan_at)}
           </Typography>
         </Box>
-        {backtesting.last_run_at && (
-          <Typography variant="caption" color="text.disabled">
-            · Best backtest CAGR: {backtesting.best_cagr.toFixed(1)}%
-          </Typography>
-        )}
       </Box>
 
       {ScanBanner}
-      {PostProcessBanner}
 
       {/* ── Stat bar ─────────────────────────────────────────────────────── */}
       <Grid container spacing={2} mb={2}>
@@ -420,30 +289,11 @@ export default function DashboardPage() {
             color={STATUS_COLORS.INVESTMENT}
           />
         </Grid>
-        <Grid item xs={6} sm={3}>
-          <StatCard
-            label="Open Trades"
-            value={paper_trading.open_positions}
-            subtitle={`${paper_trading.total_trades} total`}
-            icon={<SwapHoriz />}
-            color={STATUS_COLORS.SWING}
-          />
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <StatCard
-            label="Win Rate"
-            value={`${paper_trading.win_rate.toFixed(1)}%`}
-            subtitle={`${paper_trading.winning_trades}W / ${paper_trading.total_trades - paper_trading.winning_trades}L`}
-            icon={<EmojiEvents />}
-            color={paper_trading.win_rate >= 50 ? STATUS_COLORS.INVESTMENT : "#ef4444"}
-            trend={paper_trading.win_rate >= 50 ? "up" : "down"}
-          />
-        </Grid>
       </Grid>
 
-      {/* ── Main content: opportunities + trades ─────────────────────────── */}
+      {/* ── Main content: opportunities ─────────────────────────────────── */}
       <Grid container spacing={2} mb={2}>
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12}>
           <ErrorBoundary>
             <Card sx={{ height: "100%" }}>
               <CardContent sx={{ pb: "12px !important" }}>
@@ -460,37 +310,10 @@ export default function DashboardPage() {
             </Card>
           </ErrorBoundary>
         </Grid>
-
-        <Grid item xs={12} md={6}>
-          <ErrorBoundary>
-            <Card sx={{ height: "100%" }}>
-              <CardContent sx={{ pb: "12px !important" }}>
-                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                  <Typography variant="subtitle2" fontWeight={700}>Recent Paper Trades</Typography>
-                  <Chip
-                    label={`${recent_trades.length} shown`}
-                    size="small"
-                    sx={{ fontSize: "0.65rem", height: 18 }}
-                  />
-                </Box>
-                <RecentTradesSection items={recent_trades} />
-              </CardContent>
-            </Card>
-          </ErrorBoundary>
-        </Grid>
       </Grid>
 
-      {/* ── Bottom row: P&L + health ─────────────────────────────────────── */}
+      {/* ── Bottom row: health ───────────────────────────────────────────── */}
       <Grid container spacing={2}>
-        <Grid item xs={12} sm={6}>
-          <ErrorBoundary>
-            <Card sx={{ height: "100%" }}>
-              <CardContent>
-                <PaperTradingPanel pt={paper_trading} />
-              </CardContent>
-            </Card>
-          </ErrorBoundary>
-        </Grid>
         <Grid item xs={12} sm={6}>
           <ErrorBoundary>
             <Card sx={{ height: "100%" }}>

@@ -16,7 +16,6 @@ from fastapi import APIRouter, Response
 from app.config import get_settings
 from app.db import get_read_pool
 from app.redis_client import get_redis
-from app.services.price_service import get_bulk_prices
 from app.utils.display import enrich_signal_display
 from app.utils.serialization import serialize_row
 
@@ -36,10 +35,7 @@ async def get_dashboard(response: Response):
     Single-call dashboard payload:
       scanner      — latest scan stats + signal counts
       watchlist    — counts by status
-      paper_trading — live P&L, open positions, trade stats
-      backtesting  — total runs, best CAGR
       recent_opportunities — top 5 BUY signals from latest scan
-      recent_trades        — last 5 closed paper trades
       system_health        — DB / Redis / last scan duration
     """
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
@@ -129,70 +125,6 @@ async def _build(conn: asyncpg.Connection, redis: aioredis.Redis) -> dict:
         )
         recent_opportunities = [enrich_signal_display(serialize_row(r)) for r in opp_rows]
 
-    # ── Paper trading ──────────────────────────────────────────────────────
-    pt_config = await conn.fetchrow("SELECT * FROM portfolio_config LIMIT 1")
-    pt_trade_stats = await conn.fetchrow(
-        """SELECT
-             COUNT(*) FILTER (WHERE pnl_abs IS NOT NULL) AS total_trades,
-             COUNT(*) FILTER (WHERE pnl_abs > 0)         AS winning_trades,
-             COALESCE(SUM(pnl_abs) FILTER (WHERE pnl_abs IS NOT NULL), 0) AS realized_pnl
-           FROM trades"""
-    )
-    open_positions = await conn.fetch(
-        "SELECT * FROM positions WHERE status IN ('open','partially_closed')"
-    )
-
-    unrealized_pnl = 0.0
-    if open_positions:
-        symbols = list({p["symbol"] for p in open_positions})
-        try:
-            prices = await get_bulk_prices(symbols, redis)
-            unrealized_pnl = sum(
-                (prices.get(p["symbol"], float(p["avg_entry"])) - float(p["avg_entry"])) * p["quantity"]
-                for p in open_positions
-            )
-        except Exception as exc:
-            log.warning("dashboard_price_fetch_failed", error=str(exc))
-
-    total_trades = (pt_trade_stats["total_trades"] or 0) if pt_trade_stats else 0
-    winning_trades = (pt_trade_stats["winning_trades"] or 0) if pt_trade_stats else 0
-    realized_pnl = float((pt_trade_stats["realized_pnl"] or 0)) if pt_trade_stats else 0.0
-
-    paper_trading_stats = {
-        "open_positions":  len(open_positions),
-        "total_trades":    total_trades,
-        "winning_trades":  winning_trades,
-        "win_rate":        round((winning_trades / total_trades) * 100, 1) if total_trades else 0.0,
-        "realized_pnl":    round(realized_pnl, 2),
-        "unrealized_pnl":  round(unrealized_pnl, 2),
-        "total_pnl":       round(realized_pnl + unrealized_pnl, 2),
-        "current_capital": float(pt_config["current_capital"]) if pt_config else 0.0,
-    }
-
-    # ── Recent trades ──────────────────────────────────────────────────────
-    recent_trade_rows = await conn.fetch(
-        """SELECT symbol, side, quantity, price, executed_at, exit_reason, pnl_abs, pnl_pct
-           FROM trades WHERE pnl_abs IS NOT NULL
-           ORDER BY executed_at DESC LIMIT 5"""
-    )
-    recent_trades = [serialize_row(r) for r in recent_trade_rows]
-
-    # ── Backtesting ────────────────────────────────────────────────────────
-    bt_stats_row = await conn.fetchrow(
-        """SELECT
-             COUNT(*)              AS total_runs,
-             MAX(started_at)       AS last_run_at,
-             MAX(cagr)             AS best_cagr,
-             MAX(win_rate)         AS best_win_rate
-           FROM backtests WHERE status='done'"""
-    )
-    backtesting_stats = {
-        "total_runs":    int(bt_stats_row["total_runs"] or 0) if bt_stats_row else 0,
-        "last_run_at":   bt_stats_row["last_run_at"].isoformat() if bt_stats_row and bt_stats_row["last_run_at"] else None,
-        "best_cagr":     round(float(bt_stats_row["best_cagr"] or 0), 2) if bt_stats_row else 0.0,
-        "best_win_rate": round(float(bt_stats_row["best_win_rate"] or 0), 1) if bt_stats_row else 0.0,
-    }
-
     # ── System health ──────────────────────────────────────────────────────
     redis_ok = False
     try:
@@ -209,10 +141,7 @@ async def _build(conn: asyncpg.Connection, redis: aioredis.Redis) -> dict:
 
     return {
         "scanner":               scanner_stats,
-        "paper_trading":         paper_trading_stats,
-        "backtesting":           backtesting_stats,
         "recent_opportunities":  recent_opportunities,
-        "recent_trades":         recent_trades,
         "system_health":         system_health,
     }
 
@@ -227,15 +156,6 @@ def _empty_dashboard() -> dict:
             "last_scan_at": None, "last_scan_duration_sec": None,
             "total_signals": 0, "buy_count": 0, "watch_count": 0, "no_action_count": 0,
         },
-        "paper_trading": {
-            "open_positions": 0, "total_trades": 0, "winning_trades": 0,
-            "win_rate": 0.0, "realized_pnl": 0.0, "unrealized_pnl": 0.0,
-            "total_pnl": 0.0, "current_capital": 0.0,
-        },
-        "backtesting": {
-            "total_runs": 0, "last_run_at": None, "best_cagr": 0.0, "best_win_rate": 0.0,
-        },
         "recent_opportunities": [],
-        "recent_trades": [],
         "system_health": {"db_ok": False, "redis_ok": False, "last_scan_duration_sec": None},
     }

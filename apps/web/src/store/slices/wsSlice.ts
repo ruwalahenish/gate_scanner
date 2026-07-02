@@ -9,10 +9,6 @@ interface ScanProgress {
   total: number;
 }
 
-interface PostProcessPayload {
-  trades_created: number;
-}
-
 export interface CompletionSummary {
   scan_id: string;
   signals_count: number;
@@ -20,35 +16,6 @@ export interface CompletionSummary {
   watch_count: number;
   no_action_count: number;
   duration_sec: number;
-}
-
-export interface LiveStockResult {
-  symbol: string;
-  status: "done" | "failed";
-  total_trades: number;
-  winning_trades: number;
-  win_rate: number;
-  total_pnl_abs: number;
-  avg_pnl_pct: number;
-  best_trade_pct: number;
-  worst_trade_pct: number;
-  avg_holding_days: number;
-  category: string | null;
-  error?: string;
-  completed: number;
-  total: number;
-}
-
-interface BacktestLiveProgress {
-  completed: number;
-  total: number;
-  currentBatch: string[];
-}
-
-interface BacktestLiveState {
-  backtest_id: string | null;
-  stockResults: LiveStockResult[];
-  progress: BacktestLiveProgress | null;
 }
 
 interface WSState {
@@ -65,10 +32,7 @@ interface WSState {
   streamingBuyCount: number;
   streamingWatchCount: number;
   streamingNoActionCount: number;
-  lastPostProcess: PostProcessPayload | null;
   lastCompletionSummary: CompletionSummary | null;
-  lastPrices: Record<string, number>;
-  backtestLive: BacktestLiveState;
 }
 
 const initialState: WSState = {
@@ -84,14 +48,7 @@ const initialState: WSState = {
   streamingBuyCount: 0,
   streamingWatchCount: 0,
   streamingNoActionCount: 0,
-  lastPostProcess: null,
   lastCompletionSummary: null,
-  lastPrices: {},
-  backtestLive: {
-    backtest_id: null,
-    stockResults: [],
-    progress: null,
-  },
 };
 
 function resetStreamingCounters(state: WSState) {
@@ -180,55 +137,6 @@ export const wsSlice = createSlice({
       state.scanPhaseMessage = null;
       resetStreamingCounters(state);
     },
-    postProcessReceived: (state, action: PayloadAction<PostProcessPayload>) => {
-      state.lastPostProcess = action.payload;
-    },
-    // useWebSocket buffers individual price ticks and flushes them here
-    // periodically so the store (and every subscribed component) updates at
-    // most once per flush instead of once per tick.
-    pricesBatchUpdated: (state, action: PayloadAction<Record<string, number>>) => {
-      Object.assign(state.lastPrices, action.payload);
-    },
-    // ── Backtest live-streaming actions ──────────────────────────────────────
-    backtestLiveReset: (state, action: PayloadAction<string>) => {
-      state.backtestLive = {
-        backtest_id: action.payload,
-        stockResults: [],
-        progress: null,
-      };
-    },
-    backtestLiveLoad: (state, action: PayloadAction<{ backtest_id: string; results: LiveStockResult[] }>) => {
-      state.backtestLive = {
-        backtest_id: action.payload.backtest_id,
-        stockResults: action.payload.results,
-        progress: null,
-      };
-    },
-    backtestBatchScanning: (
-      state,
-      action: PayloadAction<{ symbols: string[]; completed: number; total: number }>
-    ) => {
-      state.backtestLive.progress = {
-        completed:    action.payload.completed,
-        total:        action.payload.total,
-        currentBatch: action.payload.symbols,
-      };
-    },
-    backtestStockComplete: (state, action: PayloadAction<LiveStockResult>) => {
-      const idx = state.backtestLive.stockResults.findIndex(
-        r => r.symbol === action.payload.symbol
-      );
-      if (idx >= 0) {
-        state.backtestLive.stockResults[idx] = action.payload;
-      } else {
-        state.backtestLive.stockResults.push(action.payload);
-      }
-      state.backtestLive.progress = {
-        completed:    action.payload.completed,
-        total:        action.payload.total,
-        currentBatch: state.backtestLive.progress?.currentBatch ?? [],
-      };
-    },
   },
 });
 
@@ -241,10 +149,4 @@ export const {
   clearStreamingSignals,
   scanFailed,
   scanPhaseReceived,
-  postProcessReceived,
-  pricesBatchUpdated,
-  backtestLiveReset,
-  backtestLiveLoad,
-  backtestBatchScanning,
-  backtestStockComplete,
 } = wsSlice.actions;

@@ -62,7 +62,7 @@ services:
       redis:
         condition: service_healthy
 
-  # ── Celery Worker: backtests + admin queues ──────────────────────────
+  # ── Celery Worker: admin queue ────────────────────────────────────────
   worker-admin:
     build:
       context: ./backend
@@ -71,7 +71,7 @@ services:
     command: >
       celery -A app.tasks.celery_app worker
       --loglevel=info
-      --queues=backtests,admin
+      --queues=admin
       --concurrency=1
       --hostname=worker-admin@%h
     env_file:

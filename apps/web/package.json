@@ -22,7 +22,6 @@
     "@reduxjs/toolkit": "^2.5.0",
     "react-redux": "^9.2.0",
     "lightweight-charts": "^5.0.0",
-    "recharts": "^2.15.0",
     "notistack": "^3.0.1",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",

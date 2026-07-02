@@ -563,7 +563,7 @@ async def list_stocks_with_signals(
 
 
 # ---------------------------------------------------------------------------
-# Universe selection by mode (for scanner / backtester integration)
+# Universe selection by mode (for scanner integration)
 # ---------------------------------------------------------------------------
 
 _MODE_TO_INDEX_FILTER: dict[str, str | None] = {

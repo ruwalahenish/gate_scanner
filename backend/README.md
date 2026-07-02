@@ -25,14 +25,12 @@ FastAPI + Celery backend for the GATE Trading Intelligence platform.
 ## Scheduled Tasks
 
 Celery Beat is replaced by [cron-job.org](https://cron-job.org) HTTP triggers.
-Configure 5 jobs in cron-job.org pointing to this Space's endpoints:
+Configure 3 jobs in cron-job.org pointing to this Space's endpoints:
 
 | Endpoint | Schedule (UTC) | IST equivalent |
 |---|---|---|
 | `POST /api/internal/tasks/daily-scan` | `35 10 * * 1-5` | 16:05 Mon–Fri |
 | `POST /api/internal/tasks/stock-sync` | `30 0 * * 0` | 06:00 Sunday |
 | `POST /api/internal/tasks/fundamentals` | `*/15 * * * *` | every 15 min |
-| `POST /api/internal/tasks/monitor-trades` | `*/5 9-16 * * 1-5` | every 5 min market hours |
-| `POST /api/internal/tasks/broadcast-prices` | `*/5 9-16 * * 1-5` | every 5 min market hours |
 
 Each request must include the header: `Authorization: Bearer <INTERNAL_SECRET>`

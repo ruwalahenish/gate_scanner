@@ -1,9 +1,7 @@
 import { configureStore } from "@reduxjs/toolkit";
 import { scannerApi } from "./api/scannerApi";
-import { paperTradingApi } from "./api/paperTradingApi";
 import { marketApi } from "./api/marketApi";
 import { stockMasterApi } from "./api/stockMasterApi";
-import { backtestApi } from "./api/backtestApi";
 // Legacy — still used by stock detail pages; will be removed in M7
 import { signalsApi } from "./api/signalsApi";
 import { wsSlice } from "./slices/wsSlice";
@@ -14,19 +12,15 @@ export const store = configureStore({
     ui:                               uiSlice.reducer,
     ws:                               wsSlice.reducer,
     [scannerApi.reducerPath]:         scannerApi.reducer,
-    [paperTradingApi.reducerPath]:    paperTradingApi.reducer,
     [marketApi.reducerPath]:          marketApi.reducer,
     [stockMasterApi.reducerPath]:     stockMasterApi.reducer,
-    [backtestApi.reducerPath]:        backtestApi.reducer,
     [signalsApi.reducerPath]:         signalsApi.reducer,
   },
   middleware: (getDefault) =>
     getDefault().concat(
       scannerApi.middleware,
-      paperTradingApi.middleware,
       marketApi.middleware,
       stockMasterApi.middleware,
-      backtestApi.middleware,
       signalsApi.middleware,
     ),
 });

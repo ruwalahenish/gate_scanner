@@ -25,8 +25,13 @@ EMA_CORRECTION_MAP = {
 EMA_TOUCH_TOLERANCE = 0.015  # 1.5%
 
 # Monthly exception: for NIFTY_50 blue-chip/index stocks, corrections on the
-# monthly timeframe end at EMA100, not EMA200 (BUG-1 fix)
 MONTHLY_BLUECHIP_MAX_EMA = 100
+
+# Minimum size of the impulsive leg INTO the swing high being corrected, expressed
+# as a multiple of ATR(14) at that swing high. Without this, a choppy stock whose
+# tiny swings happen to graze EMA200 could pass Check B with no genuine prior
+# trend to correct from (§1: "Trend -> Correction -> Trend").
+MIN_PRIOR_TREND_ATR_MULT = 3.0
 
 # -----------------------------------------------------------------------------
 # TIMEFRAME HIERARCHY
@@ -59,7 +64,6 @@ TIMEFRAME_HISTORY = {
 
 # Larger -> Smaller : the smaller-TF EMA200 is the SL for the larger-TF breakout
 # Rule: "Smaller timeframe EMA200 acts as SL for larger timeframe breakout."
-# BUG FIX (C-3): "5m" previously mapped to itself — now correctly maps to "3m"
 SL_TIMEFRAME_MAP = {
     "1mo": "1wk",
     "1wk": "1d",
@@ -81,18 +85,17 @@ TARGET_EXPECTANCY = {
     "1mo": (8.00, 12.00),    # 8x – 12x (massive multi-year trends)
     "1wk": (2.00, 3.00),     # 2x – 3x
     "1d":  (0.50, 0.70),     # 50–70%
-    "4h":  (0.35, 0.40),     # 35–40%  (BUG-3 fix: was absent)
+    "4h":  (0.35, 0.40),     # 35–40%
     "60m": (0.20, 0.25),     # 20–25%
     "30m": (0.10, 0.15),
     "15m": (0.07, 0.10),
     "5m":  (0.05, 0.07),     # 5–7%
-    "3m":  (0.03, 0.04),     # 3–4%  (MISS-4 fix: was absent)
-    "1m":  (0.03, 0.04),     # 3–4%  (MISS-4 fix: was absent)
+    "3m":  (0.03, 0.04),     # 3–4%
+    "1m":  (0.03, 0.04),     # 3–4%
 }
 
 # -----------------------------------------------------------------------------
 # CORRECTION DURATION (bars elapsed for a typical correction, per TF)
-# (MISS-3 fix: strategy defines correction durations per timeframe)
 # Used by structure_engine to compute correction_age_pct
 # -----------------------------------------------------------------------------
 CORRECTION_DURATIONS = {
@@ -130,14 +133,12 @@ VOL_CONTRACTION_LOOKBACK_SHORT = 10
 VOL_CONTRACTION_LOOKBACK_LONG = 50
 
 # ADX threshold for contraction: ADX <= this is considered weak trend / sideways
-# (C-2 fix: used by the new adx_contraction GATE component)
 ADX_CONTRACTION_WEAK = 15   # ADX <= 15 → score = 1.0 (maximum contraction signal)
 ADX_CONTRACTION_STRONG = 35  # ADX >= 35 → score = 0.0 (no contraction signal)
 
 # -----------------------------------------------------------------------------
 # CONTRACTION SUB-SCORE WEIGHTS (must sum to 1.0)
 # Feeds the "consolidation_strength" component of the per-TF GATE score.
-# (C-2 fix: added adx_contraction; weights redistributed proportionally)
 # -----------------------------------------------------------------------------
 CONTRACTION_WEIGHTS = {
     "bb_squeeze":      0.22,
@@ -205,6 +206,14 @@ ACTIONABLE_BREAKOUT_STATES = ("BREAKOUT_CONFIRMED",)
 # and range_high) before the setup is considered dead. §12 specifies 5–7 bars.
 SETUP_EXPIRY_BARS = 7
 
+# Level-freshness filter: a breakout is only "fresh" (§6C: a real, convincing
+# breakout, not a "weak poke") if the box's range_high hasn't already failed
+# repeatedly nearby. Bars further back than the current box are scanned for
+# prior approaches to the same level that never closed decisively above it.
+LEVEL_FRESHNESS_LOOKBACK      = 150   # bars before the current box to scan
+LEVEL_FRESHNESS_TOLERANCE     = 0.02  # High within 2% of the level counts as a "test"
+LEVEL_FRESHNESS_MAX_FAILURES  = 2     # more than this many failed tests → reject as chased
+
 # -----------------------------------------------------------------------------
 # FIBONACCI EXTENSION TARGETS (anchored to consolidation base, §10)
 # T = range_low + multiplier × (range_high − range_low)
@@ -230,12 +239,11 @@ CATEGORY_RULES = {
 
 # -----------------------------------------------------------------------------
 # RISK / SIGNAL FILTERS
-# (S-2/S-3 fix: strategy document now matches these code-enforced thresholds)
 # -----------------------------------------------------------------------------
 MIN_RR_RATIO = 1.5           # minimum acceptable risk-reward at T1
-MIN_AVG_VOLUME = 100_000     # liquidity floor (20-bar avg daily volume)  (S-4)
-MIN_PRICE = 20.0             # avoid penny stocks  (S-4)
-MAX_SL_DISTANCE_PCT = 0.10   # SL no further than 10% from entry for daily swing trades (§8)
+MIN_AVG_VOLUME = 100_000     # liquidity floor (20-bar avg daily volume)
+MIN_PRICE = 20.0             # avoid penny stocks
+MAX_SL_DISTANCE_PCT = 0.08   # SL no further than ~8% from entry for daily swing trades
 
 # GATE position requirement: the GATE squeeze forms AT the 200 EMA (§1–§3).
 # Price must be within this fraction below EMA200 for a valid GATE signal or WATCH.
@@ -288,36 +296,13 @@ def yf_symbol(sym: str) -> str:
 
 
 # -----------------------------------------------------------------------------
-# BACKTESTER DEFAULTS
-# -----------------------------------------------------------------------------
-BACKTEST_START_DATE    = "2020-01-01"
-BACKTEST_END_DATE      = None          # None = today
-BACKTEST_CAPITAL       = 1_000_000     # ₹10 lakh starting capital
-BACKTEST_POSITION_PCT  = 0.05          # 5% of equity per trade
-BACKTEST_MAX_POSITIONS = 10            # max concurrent open positions
-BACKTEST_TIMEFRAME     = "1d"          # GATE strategy works best on daily
-
-# -----------------------------------------------------------------------------
 # DAILY TIMEFRAME STRATEGY — the platform currently scans 1d bars.
-# Set False so all five GATE categories are active per §14 of the strategy.
-# POSITIONAL signals (1h–2h) require "60m" to be added to SCAN_TIMEFRAMES.
+# POSITIONAL (§14, 1h-2h setups) is naturally inactive because "60m" is not in
+# SCAN_TIMEFRAMES below — classifier.py's hourly checks see no data and skip it.
+# Add "60m" to SCAN_TIMEFRAMES to re-enable POSITIONAL classification.
 # -----------------------------------------------------------------------------
-DAILY_ONLY_MODE = False
 # The entry signal is ALWAYS generated on the daily (1d) timeframe.
 # 4h bars are fetched to compute the SL (SL_TIMEFRAME_MAP["1d"] = "4h").
 # 1wk bars are fetched for HTF confirmation (direction agreement).
 SCAN_TIMEFRAME  = "1d"                  # signal generation TF — never changes
 SCAN_TIMEFRAMES = ["4h", "1d", "1wk"]  # fetch set: SL source | entry | HTF confirm
-
-# -----------------------------------------------------------------------------
-# AUTOMATED PAPER TRADING (automation_service.py)
-# BUY-category signals above this rank trigger automatic paper trades.
-# -----------------------------------------------------------------------------
-AUTO_TRADE_MIN_RANK      = 50   # minimum rank score to trigger an auto paper trade
-AUTO_TRADE_MAX_POSITIONS = 10   # max simultaneous open auto positions
-
-# §11 pyramiding prerequisite: existing position must be risk-free before a second tranche is allowed.
-# §13 circuit breaker: suspend auto-trading after a bad streak or intra-day account drawdown.
-CIRCUIT_BREAKER_CONSECUTIVE_LOSSES = 3      # suspend after N consecutive SL-hit exits
-CIRCUIT_BREAKER_DAILY_DRAWDOWN_PCT  = 0.03  # suspend when today's realized PnL ≤ −3% of account
-EVENT_SKIP_DAYS                     = 14    # skip stocks with a corporate event within this many days

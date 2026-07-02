@@ -34,7 +34,7 @@ make install  # pip install + npm install
 make clean    # remove __pycache__ and .next
 ```
 
-Docker runs two separate workers: `worker-scans` (concurrency=2, queues: scans+default) and `worker-admin` (concurrency=1, queues: admin+backtests). `dev.py` merges all queues into a single `--pool=solo` worker.
+Docker runs two separate workers: `worker-scans` (concurrency=2, queues: scans+default) and `worker-admin` (concurrency=1, queue: admin). `dev.py` merges all queues into a single `--pool=solo` worker.
 
 Flower (Celery task monitor) is available at `http://localhost:5555` when running via Docker. Default auth: `admin / gate_flower_2024` (set via `FLOWER_USER` / `FLOWER_PASSWORD` env vars).
 
@@ -46,13 +46,16 @@ psql $DATABASE_URL -f backend/migrations/002_stock_master.sql
 psql $DATABASE_URL -f backend/migrations/003_performance_indexes.sql
 psql $DATABASE_URL -f backend/migrations/004_architecture_v2.sql
 psql $DATABASE_URL -f backend/migrations/005_backtest_per_stock.sql
-psql $DATABASE_URL -f backend/migrations/006_backtest_streaming.sql  # required for streaming backtest progress
+psql $DATABASE_URL -f backend/migrations/006_backtest_streaming.sql
 psql $DATABASE_URL -f backend/migrations/007_optimization_indexes.sql  # covering indexes for dashboard, signals, watchlist hot paths
 ```
 
-Migration 006 adds `backtest_stock_results`, `total_symbols`, and `scanned_symbols` columns. The app degrades gracefully without it (skips per-stock persistence with a log warning) but streaming backtest results won't populate.
-
-Migration 007 adds covering and partial indexes for the heaviest query paths (dashboard aggregation, signal list filtering, watchlist lifecycle, auto-exit scans). Safe to run on a live database — all statements use `CREATE INDEX IF NOT EXISTS`.
+Paper Trading and Backtesting have been removed from the app. Migrations 001/003/004/005/006/007 still contain
+the `positions`/`trades`/`portfolio_config`/`backtests`/`backtest_trades`/`backtest_equity_curve`/
+`backtest_stock_results` tables from when those features existed (migrations are an append-only historical
+record, never edited after the fact). `backend/migrations/010_remove_backtest_paper_trading.sql` drops all of
+them — it is destructive (permanently deletes any existing paper-trade/backtest history) and is **not** run
+automatically; run it explicitly only once you're sure that history can be discarded.
 
 ### Install dependencies
 ```bash
@@ -86,7 +89,6 @@ gate_scanner/
 │   │   │   ├── config.py       # all engine tunables — no magic numbers in engines
 │   │   │   ├── analysis/       # ema_engine, contraction_engine, structure_engine,
 │   │   │   │                   # signal_engine, indicators, multi_timeframe
-│   │   │   ├── backtester/     # walk-forward engine, metrics, portfolio, trade
 │   │   │   ├── ranking/        # classifier, ranking_engine
 │   │   │   ├── reporting/      # charting (Plotly), reporting, scan_report (HTML)
 │   │   │   └── scanner/        # data_fetcher (yfinance + Parquet cache), pipeline,
@@ -95,24 +97,22 @@ gate_scanner/
 │   │   ├── routers/            # FastAPI route handlers (one file per domain)
 │   │   ├── queries/            # raw asyncpg SQL — no ORM
 │   │   ├── services/           # scan_service (async wrapper), ws_manager, alert_engine,
-│   │   │                       # automation_service (auto paper trades), price_service,
-│   │   │                       # stock_service (fundamentals enrichment thread pool)
-│   │   ├── tasks/              # Celery: scanner_tasks, backtest_tasks, stock_tasks,
-│   │   │                       # trading_tasks, celery_app
+│   │   │                       # price_service, stock_service (fundamentals enrichment
+│   │   │                       # thread pool)
+│   │   ├── tasks/              # Celery: scanner_tasks, stock_tasks, celery_app
 │   │   ├── models/             # Pydantic request/response models
 │   │   ├── config.py           # runtime settings via pydantic-settings (env vars)
 │   │   └── main.py             # FastAPI app, lifespan, WebSocket /ws endpoint
 │   └── migrations/             # plain SQL — run manually with psql
 ├── apps/web/                   # Next.js 15 App Router frontend
 │   ├── app/(dashboard)/        # route group — shared layout wraps all dashboard pages
-│   │   │                       # pages: / (dashboard), /scanner, /paper-trading,
-│   │   │                       # /portfolio, /alerts, /backtest, /stocks, /stocks/[symbol]
+│   │   │                       # pages: / (dashboard), /scanner, /stocks, /stocks/[symbol]
 │   └── src/
 │       ├── components/         # domain/ (SignalTable, GATEChart…), layout/, ui/
 │       ├── store/              # Redux store + RTK Query slices in store/api/
 │       ├── hooks/              # useWebSocket (single WS connection)
 │       ├── lib/                # constants.ts (API_URL, colours), formatters.ts, theme.ts
-│       └── types/              # TypeScript types (Signal, Portfolio, Alert…)
+│       └── types/              # TypeScript types (Signal, Stock, Alert…)
 ├── dev.py                      # all-in-one local dev launcher
 ├── docker-compose.yml
 └── Makefile
@@ -123,7 +123,7 @@ gate_scanner/
 ### Infrastructure
 - **Database**: NeonDB (PostgreSQL 16) via `asyncpg` connection pool. No ORM — raw SQL lives in `app/queries/`.
 - **Cache/Broker**: Redis — Celery broker+backend, pub/sub for real-time events.
-- **Workers**: Celery processes CPU-bound scan and backtest jobs off the FastAPI event loop.
+- **Workers**: Celery processes CPU-bound scan jobs off the FastAPI event loop.
 - **Observability**: Prometheus metrics exposed at `/metrics` (via `app/metrics.py`). Structured logs via `structlog` with per-request `X-Request-ID` correlation — `ConsoleRenderer` in dev, swap for `JSONRenderer` in production. API docs at `/api/docs`. Extended health check at `/api/health/detailed` (DB pool stats, Redis ping, last scan info).
 - **Rate limiting**: `slowapi` enforces 200 requests/minute per IP globally; `/api/health` and `/metrics` are exempt.
 
@@ -133,8 +133,6 @@ gate_scanner/
 | `daily-post-market-scan` | 16:05 IST Mon–Fri | Full universe scan after market close |
 | `weekly-stock-master-sync` | 06:00 UTC Sunday | Sync Nifty 50/Next 50 fundamentals |
 | `fundamentals-enrichment-batch` | Every 15 min | Enrich stock master with fundamentals |
-| `monitor-paper-trades` | Every 5 min (market hours) | Check SL/target hits, auto-exit positions |
-| `broadcast-position-prices` | Every 2 min (market hours) | Push live price ticks to connected clients |
 
 ### Scan request flow
 ```
@@ -149,19 +147,14 @@ POST /api/scans/trigger
   → ws_manager fans out to all WebSocket clients
 ```
 
-Backtest follows the same pattern via `POST /api/backtests/run` → `run_backtest_task` → streaming batch loop → `backtest:progress` channel.
-
 ### Redis pub/sub channels
 `ws_manager.py` subscribes to all of these and fans out to every WebSocket client:
 
 | Channel | Events published |
 |---|---|
 | `scan:progress` | `scan.started`, `scan.progress`, `scan.batch`, `scan.failed` |
-| `scan:complete` | `scan.complete`, `backtest.complete` |
+| `scan:complete` | `scan.complete` |
 | `scan:batch` | `scan.batch` (streaming signal batches) |
-| `scan:post_process` | `scan.post_process` (watchlist + auto-trades) |
-| `price:update` | `price.update` (live price ticks) |
-| `backtest:progress` | `backtest.batch_scanning`, `backtest.stock_complete` |
 
 Adding a new real-time event requires: publishing to the correct channel in the backend task, handling the message type in `useWebSocket.ts`, and dispatching a Redux action.
 
@@ -174,21 +167,14 @@ Defined in `backend/app/core/scanner/pipeline.py`. Agents in `backend/app/agents
 4. **SignalRankingAgent** — computes `rank_score` (0–100) via `config.RANK_WEIGHTS`; classifies into INVESTMENT / SWING / POSITIONAL / WATCH / IGNORE via `config.CATEGORY_RULES`.
 5. **ReportGenerationAgent** — writes CSV/JSON/HTML (only in standalone pipeline mode; web platform uses the DB instead).
 
-### Backtest streaming
-`run_backtest_task` splits the universe into batches of 10 (`STREAM_BATCH_SIZE`). Each batch runs `BacktestEngine` synchronously in a `ThreadPoolExecutor(max_workers=2)`, then persists trades + per-stock metrics to `backtest_stock_results` and publishes a `backtest.stock_complete` event. The browser accumulates results live via `backtestLive` in `wsSlice`. Rate limit on `POST /api/backtests/run` is 2/minute.
-
-### Post-scan automation
-After each scan completes, `automation_service.py` fires: WATCH-category signals above a rank threshold are added to the watchlist; INVESTMENT/SWING/POSITIONAL signals above `AUTO_TRADE_MIN_RANK` (default 50) automatically open paper trades. This publishes a `scan.post_process` event.
-
 ### Frontend data flow
-- **RTK Query** (in `src/store/api/`) handles all REST calls with automatic cache and tag invalidation: `signalsApi`, `portfolioApi`, `alertsApi`, `marketApi`, `backtestApi`, `stockMasterApi`.
-- **WebSocket** — `useWebSocket` hook manages one persistent `/ws` connection and dispatches Redux actions from `wsSlice` (scan progress, alert badges, price ticks, backtest streaming). Reconnects automatically after 3 s on disconnect; sends a `ping` every 25 s.
-- **Backtest page** — exception: uses raw `fetch()` with 5 s polling instead of RTK Query, because backtests are one-shot long-running jobs rather than cached resources.
+- **RTK Query** (in `src/store/api/`) handles all REST calls with automatic cache and tag invalidation: `signalsApi`, `alertsApi`, `marketApi`, `stockMasterApi`.
+- **WebSocket** — `useWebSocket` hook manages one persistent `/ws` connection and dispatches Redux actions from `wsSlice` (scan progress, alert badges). Reconnects automatically after 3 s on disconnect; sends a `ping` every 25 s.
 
 ### Router versioning
 All routers are mounted under both `/api` and `/api/v1` prefixes (see `main.py`). The `signals` router is marked legacy and will be unmounted in M5. New endpoints should be domain-namespaced (e.g., `/api/v1/stocks`, not `/api/v1/signals`).
 
-Active routers: `dashboard`, `scans`, `signals` (legacy), `paper_trading`, `universe`, `watchlist`, `market`, `backtests`, `stock_master`, `internal`. URL prefixes to note: `stock_master` mounts at `/api/stocks` (not `/stock_master`); `paper_trading` mounts at `/api/paper-trading`. A `portfolio.py` router file exists but is **not mounted** — it is a legacy remnant. The `internal` router is the only router **not** dual-versioned; it mounts only at `/api/internal` (no `/api/v1/internal`). All `internal` endpoints require the `INTERNAL_SECRET` bearer token.
+Active routers: `dashboard`, `scans`, `signals` (legacy), `universe`, `watchlist`, `market`, `stock_master`, `internal`. URL prefix to note: `stock_master` mounts at `/api/stocks` (not `/stock_master`). The `internal` router is the only router **not** dual-versioned; it mounts only at `/api/internal` (no `/api/v1/internal`). All `internal` endpoints require the `INTERNAL_SECRET` bearer token.
 
 ### Key design decisions
 
@@ -204,7 +190,7 @@ Active routers: `dashboard`, `scans`, `signals` (legacy), `paper_trading`, `univ
 
 **Windows Celery** — billiard's prefork pool uses POSIX shared semaphores that fail on Windows (`PermissionError: [WinError 5]`). Always start the worker with `--pool=solo` on Windows. `celery_app.py` sets `worker_pool="solo"` automatically when `sys.platform == "win32"`.
 
-**Windows asyncpg in Celery tasks** — asyncpg requires `SelectorEventLoop` on Windows (Celery defaults to `ProactorEventLoop`). Any Celery task that calls asyncpg must set `asyncio.WindowsSelectorEventLoopPolicy()` before `asyncio.run(...)`. See `backtest_tasks.py` for the pattern.
+**Windows asyncpg in Celery tasks** — asyncpg requires `SelectorEventLoop` on Windows (Celery defaults to `ProactorEventLoop`). Any Celery task that calls asyncpg must set `asyncio.WindowsSelectorEventLoopPolicy()` before `asyncio.run(...)`. See `stock_tasks.py` for the pattern.
 
 ## graphify
 

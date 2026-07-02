@@ -86,25 +86,42 @@ def ema_200_slope(df: pd.DataFrame, bars: int = 20) -> float:
     return float(num / den / price)
 
 
-def compression_score(df: pd.DataFrame) -> float:
+def compression_percentile(df: pd.DataFrame, lookback: int = 100) -> Dict:
     """
-    0 (wide) to 100 (tight).
-    Score = 100 * (1 - normalized_spread), where spread = (max-min)/price.
-    Capped against EMA_COMPRESSION_THRESHOLD.
+    Self-relative EMA-spread tightness (§6A: "unusually close *for this stock*",
+    not a universal fixed threshold — a high-beta stock's normal spread is wider
+    than a low-beta stock's). Percentile-ranks the current EMA20-200 spread
+    against the stock's own trailing `lookback`-bar history.
+
+    This is the single canonical "how tight is the ribbon" measure — both
+    compression_score()/convergence_signal() here and contraction_engine's
+    consolidation_strength() consume it, so the two engines never disagree
+    about whether a stock's gate is shut.
+
+    Returns {"percentile": 0..100 (lower = tighter), "score_0_1": 0..1 (1 = very tight)}.
     """
     df = compute_emas(df)
-    try:
-        e = df[[f"EMA{p}" for p in config.EMA_PERIODS]].iloc[-1]
-        price = df["Close"].iloc[-1]
-    except (KeyError, IndexError):
-        return 0.0
-    if e.isna().any() or pd.isna(price) or price <= 0:
-        return 0.0
-    spread = (e.max() - e.min()) / price
-    # Normalize: spread == 0 -> 100, spread >= 2*threshold -> 0
-    cap = 2 * config.EMA_COMPRESSION_THRESHOLD
-    score = max(0.0, 1.0 - (spread / cap)) * 100
-    return float(score)
+    cols = [f"EMA{p}" for p in config.EMA_PERIODS]
+    if not all(c in df.columns for c in cols):
+        return {"percentile": 100.0, "score_0_1": 0.0}
+    ema_df = df[cols]
+    price = df["Close"]
+    spread_series = (ema_df.max(axis=1) - ema_df.min(axis=1)) / price.replace(0, pd.NA)
+    spread_series = spread_series.dropna()
+    if len(spread_series) < lookback:
+        return {"percentile": 100.0, "score_0_1": 0.0}
+    window = spread_series.iloc[-lookback:]
+    current = window.iloc[-1]
+    if pd.isna(current):
+        return {"percentile": 100.0, "score_0_1": 0.0}
+    pct = float((window < current).sum() / len(window) * 100)
+    score = float(1.0 - (pct / config.BB_SQUEEZE_PERCENTILE)) if pct <= config.BB_SQUEEZE_PERCENTILE else 0.0
+    return {"percentile": pct, "score_0_1": score}
+
+
+def compression_score(df: pd.DataFrame) -> float:
+    """0 (wide) to 100 (tight) — compression_percentile() rescaled for display."""
+    return compression_percentile(df)["score_0_1"] * 100.0
 
 
 def correction_level(
@@ -225,7 +242,11 @@ def convergence_signal(df: pd.DataFrame, lookback: int = 50) -> Dict:
     else:
         trend = "flat"
 
-    is_conv = (current_spread < config.EMA_COMPRESSION_THRESHOLD) and (trend == "tightening")
+    # Tightness is judged relative to the stock's own history (same measure the
+    # actual BUY-gating GATE score uses), not a universal fixed threshold — see
+    # compression_percentile().
+    is_tight = compression_percentile(df)["percentile"] <= config.BB_SQUEEZE_PERCENTILE
+    is_conv = is_tight and (trend == "tightening")
     return {
         "is_converging": bool(is_conv),
         "spread_pct": float(current_spread),
@@ -284,28 +305,78 @@ def bounce_sequence_valid(df: pd.DataFrame, current_ema: Optional[int] = None) -
 
 
 # -----------------------------------------------------------------------------
-# C-5 / MISS-1 fix: Validate that the last correction touched EMA200
+# G-4: Verify a genuine prior trend exists to correct from
 # -----------------------------------------------------------------------------
-def was_correction_validated(df: pd.DataFrame) -> bool:
+def _has_genuine_prior_trend(df: pd.DataFrame, high_pos: int) -> bool:
     """
-    Returns True if the most recently COMPLETED correction touched EMA200 before
-    the trend resumed. A reversal without an EMA200 touch is a 'fake correction'
-    per the GATE Strategy.
+    Every reference "perfect gate" chart shows a real impulsive up-leg before the
+    correction (§1: "Trend -> Correction -> Trend") — there must be something to
+    correct FROM. Without this check a choppy stock whose tiny swings happen to
+    graze EMA200 could pass Check B with no real prior trend.
 
-    Only meaningful when the stack has returned to bullish after a pullback.
-    Returns True (assume valid) when data is insufficient to determine.
+    Requires the up-move from the swing low preceding `high_pos` to the swing
+    high at `high_pos` to span at least MIN_PRIOR_TREND_ATR_MULT x ATR(14),
+    measured at the swing high — an ATR-relative (not fixed-%) bar so it scales
+    correctly for both low- and high-beta stocks.
+
+    Returns True (assume valid) whenever there isn't enough history to check —
+    consistent with the rest of this module's "insufficient data -> don't block"
+    philosophy.
     """
+    df_before_high = df.iloc[:high_pos]
+    if len(df_before_high) < 20:
+        return True
+    prior_lows_mask = ind.swing_lows(df_before_high, left=3, right=3)
+    if not prior_lows_mask.any():
+        return True
+    prior_low_pos = int(df.index.get_loc(prior_lows_mask[prior_lows_mask].index[-1]))
+    prior_low = float(df["Low"].iloc[prior_low_pos])
+    high_price = float(df["High"].iloc[high_pos])
+    if prior_low <= 0:
+        return True
+    atr_series = ind.atr(df, 14)
+    atr_at_high = atr_series.iloc[high_pos] if high_pos < len(atr_series) else None
+    if atr_at_high is None or pd.isna(atr_at_high) or atr_at_high <= 0:
+        return True
+    return (high_price - prior_low) >= config.MIN_PRIOR_TREND_ATR_MULT * float(atr_at_high)
+
+
+# -----------------------------------------------------------------------------
+# C-5 / MISS-1 fix: Validate that the last correction touched EMA200
+# G-4:              ... and that it corrected a genuine prior trend
+# G-5:              exposes the validated leg's swing prices so signal_engine's
+#                   Fibonacci-confluence check confirms the SAME up-move, not an
+#                   independently-detected fractal swing (§3: "Fibonacci ... drawn
+#                   on the last big up-move").
+# -----------------------------------------------------------------------------
+def validate_correction_leg(df: pd.DataFrame) -> Dict:
+    """
+    Returns:
+      {
+        "validated":  bool,           # did the last correction touch EMA200 (and
+                                       # correct a genuine prior trend)?
+        "swing_high": float | None,   # price of the leg's swing high
+        "swing_low":  float | None,   # price of the leg's swing low
+      }
+
+    A reversal without an EMA200 touch, or without a real prior trend, is a
+    'fake correction' per the GATE Strategy. Only meaningful when the stack has
+    returned to bullish after a pullback. Assumes valid (validated=True, no
+    swing prices) when data is insufficient to determine.
+    """
+    empty_valid = {"validated": True, "swing_high": None, "swing_low": None}
+
     df = compute_emas(df)
     if "EMA200" not in df.columns or len(df) < 50:
-        return True
+        return empty_valid
 
     if stack_state(df) != "bullish":
-        return True  # still in correction or bearish — nothing to validate yet
+        return empty_valid  # still in correction or bearish — nothing to validate yet
 
     # Find the most recent swing low (bottom of the last correction)
     lows_mask = ind.swing_lows(df, left=3, right=3)
     if not lows_mask.any():
-        return True
+        return empty_valid
 
     last_low_pos = int(df.index.get_loc(lows_mask[lows_mask].index[-1]))
 
@@ -313,12 +384,18 @@ def was_correction_validated(df: pd.DataFrame) -> bool:
     df_before_low = df.iloc[:last_low_pos]
     highs_mask = ind.swing_highs(df_before_low, left=3, right=3)
     if not highs_mask.any():
-        return True
+        return empty_valid
 
     last_high_pos = int(df.index.get_loc(highs_mask[highs_mask].index[-1]))
 
     if last_low_pos <= last_high_pos:
-        return True
+        return empty_valid
+
+    swing_high_price = float(df["High"].iloc[last_high_pos])
+    swing_low_price = float(df["Low"].iloc[last_low_pos])
+
+    if not _has_genuine_prior_trend(df, last_high_pos):
+        return {"validated": False, "swing_high": swing_high_price, "swing_low": swing_low_price}
 
     # During the correction window (swing high → swing low), check for EMA200 touch
     df_corr = df.iloc[last_high_pos : last_low_pos + 1]
@@ -333,12 +410,12 @@ def was_correction_validated(df: pd.DataFrame) -> bool:
             continue
         # Touch: bar's low came within 2x tolerance of EMA200 from above
         if abs(low_vals[i] - e) / e <= tol:
-            return True
+            return {"validated": True, "swing_high": swing_high_price, "swing_low": swing_low_price}
         # Touch: bar closed at or below EMA200 (price passed through it)
         if close_vals[i] <= e:
-            return True
+            return {"validated": True, "swing_high": swing_high_price, "swing_low": swing_low_price}
 
-    return False
+    return {"validated": False, "swing_high": swing_high_price, "swing_low": swing_low_price}
 
 
 def analyze(
@@ -359,10 +436,13 @@ def analyze(
             "ema_values": {},
             "bounce_sequence_valid": True,
             "correction_validated": True,
+            "correction_swing_high": None,
+            "correction_swing_low": None,
         }
     df = compute_emas(df)
     corr = correction_level(df, timeframe=timeframe, symbol=symbol)
     ema_values = {f"EMA{p}": _last(df[f"EMA{p}"]) for p in config.EMA_PERIODS}
+    corr_leg = validate_correction_leg(df)
     return {
         "stack": stack_state(df),
         "compression_score": compression_score(df),
@@ -371,5 +451,7 @@ def analyze(
         "convergence": convergence_signal(df),
         "ema_values": ema_values,
         "bounce_sequence_valid": bounce_sequence_valid(df, current_ema=corr.get("ema")),
-        "correction_validated": was_correction_validated(df),
+        "correction_validated": corr_leg["validated"],
+        "correction_swing_high": corr_leg["swing_high"],
+        "correction_swing_low": corr_leg["swing_low"],
     }

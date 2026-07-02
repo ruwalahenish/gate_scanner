@@ -30,8 +30,7 @@
 - [Usage Guide](#usage-guide)
   - [Full Multi-Timeframe Scan](#1-full-multi-timeframe-scan)
   - [Daily EOD Scan](#2-daily-eod-scan-recommended)
-  - [Backtesting](#3-backtesting)
-  - [Automated Scheduling](#4-automated-scheduling)
+  - [Automated Scheduling](#3-automated-scheduling)
 - [Trading Platform — Web Interface](#-trading-platform--web-interface)
   - [Platform Prerequisites](#platform-prerequisites)
   - [Step 1 — Create NeonDB Database](#step-1--create-neondb-database-free)
@@ -83,7 +82,6 @@ Manually screening 700+ stocks across multiple timeframes for volatility contrac
 | 📊 **5-Category Classification** | INVESTMENT · SWING · POSITIONAL · WATCH · IGNORE |
 | 🌐 **Interactive HTML Reports** | Dark-themed, sortable tables with embedded Plotly candlestick charts |
 | 📅 **Automated Scheduling** | Post-market cron scheduler (Mon–Fri, 4 PM IST) |
-| 🧪 **Walk-Forward Backtester** | No look-ahead bias; equity curves, drawdown, per-trade charts |
 | 💾 **Disk Cache** | Parquet-based caching with 1h TTL (24h for universe lists) |
 | 🔧 **Fully Configurable** | All thresholds, weights, and rules in a single `config.py` |
 
@@ -315,35 +313,7 @@ python -m gate_scanner.main --mode daily
 python -m gate_scanner.main --mode daily --fno-only
 ```
 
-### 3. Backtesting
-
-Run walk-forward backtests to validate the strategy on historical data:
-
-```bash
-# Default backtest (Nifty 50 + Next 50, from 2020-01-01)
-python -m gate_scanner.main --mode backtest
-
-# Custom date range
-python -m gate_scanner.main --mode backtest --backtest-start 2021-01-01 --backtest-end 2024-12-31
-
-# Custom universe
-python -m gate_scanner.main --mode backtest --universe RELIANCE TCS HDFCBANK
-
-# F&O stocks only
-python -m gate_scanner.main --mode backtest --fno-only
-
-# Custom starting capital (default: ₹10,00,000)
-python -m gate_scanner.main --mode backtest --backtest-capital 500000
-```
-
-**Backtest features:**
-- **Walk-forward simulation** — only data up to each simulation day is visible (no look-ahead)
-- **Realistic fills** — entry at next bar's open price
-- **Exit ladder** — SL hit → exit at SL; T1 → trail to breakeven; T2 → trail to T1; T3 → full exit
-- **Position sizing** — 5% of equity per trade, max 10 concurrent positions
-- **Reports** — HTML dashboard + 3 CSVs + per-trade Plotly charts in `gate_output/backtest/`
-
-### 4. Automated Scheduling
+### 3. Automated Scheduling
 
 Set up an automated post-market scan that runs Mon–Fri after market close:
 
@@ -588,7 +558,6 @@ Every scan generates the following files:
 **Default output directories:**
 - Full scan: `./gate_output/`
 - Daily scan: `./gate_output/daily/`
-- Backtest: `./gate_output/backtest/`
 
 ---
 
@@ -632,12 +601,6 @@ gate-scanner/                          # Monorepo root
 │   │   ├── risk_agent.py              # Stage 3: signal generation + RR validation
 │   │   ├── ranking_agent.py           # Stage 4: rank + classify
 │   │   └── report_agent.py            # Stage 5: CSV / JSON / HTML / charts
-│   ├── backtester/                    # Walk-forward backtesting engine
-│   │   ├── engine.py                  # Simulation loop (no look-ahead bias)
-│   │   ├── portfolio.py               # Position sizing, capital tracking
-│   │   ├── trade.py                   # Trade dataclass (15 fields + computed properties)
-│   │   ├── metrics.py                 # CAGR, Sharpe, max drawdown, monthly returns
-│   │   └── report.py                  # Backtest HTML report + equity curves
 │   └── universe/
 │       ├── nse_universe.py            # NSE/BSE symbol lists (static + live CSV fetch)
 │       └── filters.py                 # UniverseFilter: by sector, F&O, exchange
@@ -657,39 +620,33 @@ gate-scanner/                          # Monorepo root
 │       ├── routers/                   # REST API — one file per domain
 │       │   ├── scans.py               # POST /trigger · GET /scans · GET /scans/{id}
 │       │   ├── signals.py             # GET /signals · /{symbol}/analysis · /chart-data
-│       │   ├── portfolio.py           # POST /buy · POST /sell · GET /positions · /summary
 │       │   ├── alerts.py              # CRUD alerts · POST /{id}/dismiss
 │       │   ├── watchlist.py           # GET / POST / DELETE watchlist
 │       │   ├── market.py              # GET /price/{symbol} · GET /prices?symbols=…
-│       │   ├── universe.py            # GET /universe · GET /universe/search
-│       │   └── backtests.py           # POST /run · GET /{id} · /equity-curve · /trades
+│       │   └── universe.py            # GET /universe · GET /universe/search
 │       ├── services/                  # Business logic
 │       │   ├── engine_adapter.py      # Thread-pool wrapper — calls gate_scanner.* engines
 │       │   ├── ws_manager.py          # WebSocket registry + Redis pub/sub listener
 │       │   ├── alert_engine.py        # 60 s polling loop during IST market hours
-│       │   ├── portfolio_service.py   # Paper buy/sell: capital deduction, position CRUD
 │       │   └── price_service.py       # Bulk price fetch (yfinance) with 60 s Redis cache
 │       ├── queries/                   # Raw SQL — asyncpg only, no ORM
 │       │   ├── scans.py
 │       │   ├── signals.py             # Batch insert via asyncpg copy protocol
-│       │   ├── portfolio.py
 │       │   └── alerts.py
 │       ├── models/                    # Pydantic request/response schemas
 │       │   ├── scan.py
 │       │   ├── signal.py
-│       │   ├── portfolio.py
 │       │   └── alert.py
 │       └── tasks/                     # Celery background jobs
 │           ├── celery_app.py          # Config + Beat schedule (4:05 PM IST daily)
-│           ├── scanner_tasks.py       # run_scan_task → pipeline → DB → Redis pub/sub
-│           └── backtest_tasks.py      # run_backtest_task → backtester → DB
+│           └── scanner_tasks.py       # run_scan_task → pipeline → DB → Redis pub/sub
 │
 ├── apps/                              # ── Frontend ───────────────────────────────────────
 │   └── web/                           # Next.js 15 App Router
 │       ├── Dockerfile
 │       ├── next.config.ts
 │       ├── tsconfig.json
-│       ├── package.json               # next, mui, redux-toolkit, lightweight-charts, recharts
+│       ├── package.json               # next, mui, redux-toolkit, lightweight-charts
 │       ├── .env.local.example         # NEXT_PUBLIC_API_URL / NEXT_PUBLIC_WS_URL
 │       ├── public/
 │       │   └── favicon.svg
@@ -698,21 +655,17 @@ gate-scanner/                          # Monorepo root
 │       │   ├── providers.tsx          # Redux + MUI Theme + Snackbar + WebSocket init
 │       │   └── (dashboard)/           # Shared sidebar + topbar layout group
 │       │       ├── layout.tsx
-│       │       ├── page.tsx           # /  — Dashboard: portfolio strip + top signals
+│       │       ├── page.tsx           # /  — Dashboard: scan stats + top signals
 │       │       ├── signals/
 │       │       │   ├── page.tsx       # /signals — DataGrid with filter bar
 │       │       │   └── [symbol]/
 │       │       │       └── page.tsx   # /signals/RELIANCE — TradingView chart + MTF heatmap
-│       │       ├── portfolio/
-│       │       │   └── page.tsx       # /portfolio — positions, trade history, P&L cards
 │       │       ├── watchlist/
 │       │       │   └── page.tsx       # /watchlist — add/remove symbols
 │       │       ├── alerts/
 │       │       │   └── page.tsx       # /alerts — create/dismiss alerts
 │       │       ├── analytics/
-│       │       │   ├── page.tsx       # /analytics — monthly P&L + win/loss charts
-│       │       │   └── backtest/
-│       │       │       └── page.tsx   # /analytics/backtest — backtest runner + equity curve
+│       │       │   └── page.tsx       # /analytics — monthly P&L + win/loss charts
 │       │       └── settings/
 │       │           └── page.tsx       # /settings — connection info + config reference
 │       └── src/
@@ -720,13 +673,11 @@ gate-scanner/                          # Monorepo root
 │           │   ├── ui/                # Atomic (zero business logic)
 │           │   │   ├── StatCard.tsx
 │           │   │   ├── CategoryChip.tsx
-│           │   │   ├── GATEBar.tsx
-│           │   │   └── PnlBadge.tsx
+│           │   │   └── GATEBar.tsx
 │           │   ├── domain/            # Feature components (connected to Redux)
 │           │   │   ├── SignalTable.tsx
 │           │   │   ├── SignalFilterBar.tsx
-│           │   │   ├── GATEChart.tsx  # TradingView Lightweight Charts v5
-│           │   │   └── BuyModal.tsx
+│           │   │   └── GATEChart.tsx  # TradingView Lightweight Charts v5
 │           │   └── layout/
 │           │       ├── Sidebar.tsx
 │           │       └── TopBar.tsx
@@ -734,7 +685,6 @@ gate-scanner/                          # Monorepo root
 │           │   ├── index.ts           # Redux configureStore
 │           │   ├── api/               # RTK Query API slices (server cache)
 │           │   │   ├── signalsApi.ts
-│           │   │   ├── portfolioApi.ts
 │           │   │   ├── alertsApi.ts
 │           │   │   └── marketApi.ts
 │           │   └── slices/            # Local UI state
@@ -748,7 +698,6 @@ gate-scanner/                          # Monorepo root
 │           │   └── constants.ts       # CATEGORY_COLORS, TIMEFRAME_LABELS, API_URL
 │           └── types/
 │               ├── signal.ts
-│               ├── portfolio.ts
 │               └── alert.ts
 │
 ├── gate_output/                       # Scan results — auto-generated, git-ignored
@@ -756,8 +705,7 @@ gate-scanner/                          # Monorepo root
 │   ├── signals.json
 │   ├── scan_report.html
 │   ├── charts/
-│   ├── daily/
-│   └── backtest/
+│   └── daily/
 │
 └── .gate_cache/                       # Parquet + universe cache — auto-generated, git-ignored
     ├── *.parquet                       # OHLCV data (1 h TTL)
@@ -812,16 +760,6 @@ All tunable parameters are centralized in [`config.py`](gate_scanner/config.py).
 | `structure_quality` | 20% |
 | `breakout_probability` | 15% |
 | `rr_ratio` | 10% |
-
-### Backtester Defaults
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `BACKTEST_START_DATE` | 2020-01-01 | Simulation start |
-| `BACKTEST_CAPITAL` | ₹10,00,000 | Starting capital |
-| `BACKTEST_POSITION_PCT` | 5% | Per-trade equity allocation |
-| `BACKTEST_MAX_POSITIONS` | 10 | Max concurrent positions |
-| `BACKTEST_TIMEFRAME` | 1d | Timeframe for backtest |
 
 ---
 
@@ -1439,7 +1377,7 @@ Or set a custom cache location via the `GATE_CACHE_DIR` environment variable.
 
 ## Disclaimer
 
-> **⚠️ This tool is for educational and research purposes only.** It does not constitute financial advice. Trading in the stock market involves risk of loss. Past performance (including backtester results) does not guarantee future returns. Always do your own research and consult a qualified financial advisor before making investment decisions.
+> **⚠️ This tool is for educational and research purposes only.** It does not constitute financial advice. Trading in the stock market involves risk of loss. Past performance does not guarantee future returns. Always do your own research and consult a qualified financial advisor before making investment decisions.
 
 ---
 

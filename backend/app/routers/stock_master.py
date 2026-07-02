@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Annotated, Optional
 from uuid import uuid4
 
 import asyncpg
 import redis.asyncio as aioredis
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
 
-from app.dependencies import db_conn, db_read_conn, redis_client
+from app.dependencies import db_read_conn, redis_client
 from app.services.price_service import get_bulk_prices
 from app.models.stock import (
     StockListResponse,
@@ -288,64 +287,6 @@ async def get_analysis(symbol: str):
         return await analyze_symbol_async(symbol.upper())
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Analysis failed: {e}")
-
-
-# ---------------------------------------------------------------------------
-# Per-symbol backtest trigger
-# ---------------------------------------------------------------------------
-
-class SymbolBacktestRequest(BaseModel):
-    investment_per_stock: float = Field(10_000, ge=5_000)
-    start_date: Optional[date] = None   # defaults to 7 years ago
-
-
-@router.post("/{symbol}/backtest")
-async def trigger_symbol_backtest(
-    symbol: str,
-    body: SymbolBacktestRequest,
-    conn: asyncpg.Connection = Depends(db_conn),
-):
-    """Queue a 7-year walk-forward backtest for a single stock."""
-    sym = symbol.upper()
-    start = body.start_date or (date.today() - timedelta(days=7 * 365))
-    end = date.today()
-    bt_id = uuid4()
-
-    await conn.execute(
-        """INSERT INTO backtests(id, started_at, universe, start_date, end_date,
-               initial_capital, status, scope, investment_per_stock)
-           VALUES($1, NOW(), $2, $3, $4, $5, 'pending', 'symbol', $6)""",
-        bt_id, [sym], start, end, body.investment_per_stock, body.investment_per_stock,
-    )
-
-    from app.tasks.backtest_tasks import run_backtest_task
-    task = run_backtest_task.apply_async(
-        kwargs={
-            "backtest_id": str(bt_id),
-            "universe": [sym],
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat(),
-            "initial_capital": body.investment_per_stock,
-            "investment_per_stock": body.investment_per_stock,
-        },
-        queue="backtests",
-    )
-    await conn.execute("UPDATE backtests SET task_id=$2 WHERE id=$1", bt_id, str(task.id))
-    return {"backtest_id": str(bt_id), "status": "pending"}
-
-
-# ---------------------------------------------------------------------------
-# Per-symbol backtest trade history
-# ---------------------------------------------------------------------------
-
-@router.get("/{symbol}/backtest-trades")
-async def get_backtest_trades(
-    symbol: str,
-    limit: int = Query(50, ge=1, le=200),
-    conn: asyncpg.Connection = Depends(db_read_conn),
-):
-    from app.routers.backtests import get_trades_for_symbol
-    return await get_trades_for_symbol(conn, symbol.upper(), limit)
 
 
 # ---------------------------------------------------------------------------

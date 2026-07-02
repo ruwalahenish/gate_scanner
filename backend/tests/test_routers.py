@@ -72,36 +72,6 @@ async def test_get_signals_returns_list():
 
 
 @pytest.mark.anyio
-async def test_portfolio_summary_returns_dict():
-    conn = AsyncMock()
-    redis = AsyncMock()
-
-    summary = {
-        "initial_capital": 1000000.0,
-        "current_capital": 950000.0,
-        "invested_value": 50000.0,
-        "unrealized_pnl": 0.0,
-        "realized_pnl": 0.0,
-        "total_pnl": 0.0,
-        "total_pnl_pct": 0.0,
-        "open_positions": 0,
-        "total_trades": 0,
-        "winning_trades": 0,
-        "win_rate": 0.0,
-    }
-
-    with patch("app.routers.paper_trading.q.get_portfolio_summary", return_value=summary), \
-         patch("app.routers.paper_trading.q.get_open_positions", return_value=[]):
-        app = _make_app_client(conn, redis)
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            resp = await c.get("/api/paper-trading/summary")
-
-    assert resp.status_code == 200
-    assert "current_capital" in resp.json()
-    app.dependency_overrides.clear()
-
-
-@pytest.mark.anyio
 async def test_rate_limit_scan_trigger():
     """Scan trigger should 429 after 5 requests/minute from same IP."""
     conn = AsyncMock()
@@ -143,7 +113,6 @@ async def test_get_dashboard_returns_dict():
     assert resp.status_code == 200
     data = resp.json()
     assert "scanner" in data
-    assert "paper_trading" in data
     assert "system_health" in data
     app.dependency_overrides.clear()
 

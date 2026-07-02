@@ -44,24 +44,7 @@ export interface DashboardData {
     watch_count: number;
     no_action_count: number;
   };
-  paper_trading: {
-    open_positions: number;
-    total_trades: number;
-    winning_trades: number;
-    win_rate: number;
-    realized_pnl: number;
-    unrealized_pnl: number;
-    total_pnl: number;
-    current_capital: number;
-  };
-  backtesting: {
-    total_runs: number;
-    last_run_at: string | null;
-    best_cagr: number;
-    best_win_rate: number;
-  };
   recent_opportunities: SignalListResponse["items"];
-  recent_trades: object[];
   system_health: {
     db_ok: boolean;
     redis_ok: boolean;

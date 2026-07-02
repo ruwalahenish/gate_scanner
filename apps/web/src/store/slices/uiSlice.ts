@@ -4,16 +4,12 @@ interface UIState {
   sidebarOpen: boolean;
   selectedSymbol: string | null;
   scanModalOpen: boolean;
-  buyModalOpen: boolean;
-  buyModalSymbol: string | null;
 }
 
 const initialState: UIState = {
   sidebarOpen: true,
   selectedSymbol: null,
   scanModalOpen: false,
-  buyModalOpen: false,
-  buyModalSymbol: null,
 };
 
 export const uiSlice = createSlice({
@@ -31,14 +27,6 @@ export const uiSlice = createSlice({
     },
     openScanModal: (state) => { state.scanModalOpen = true; },
     closeScanModal: (state) => { state.scanModalOpen = false; },
-    openBuyModal: (state, action: PayloadAction<string | null>) => {
-      state.buyModalOpen = true;
-      state.buyModalSymbol = action.payload;
-    },
-    closeBuyModal: (state) => {
-      state.buyModalOpen = false;
-      state.buyModalSymbol = null;
-    },
   },
 });
 
@@ -48,6 +36,4 @@ export const {
   selectSymbol,
   openScanModal,
   closeScanModal,
-  openBuyModal,
-  closeBuyModal,
 } = uiSlice.actions;

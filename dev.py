@@ -9,7 +9,7 @@ Services started:
   • Redis        via Docker (skipped when Redis already on :6379)
   • FastAPI API  uvicorn --reload on :8000
   • Celery       worker with 2 concurrency slots
-  • Celery Beat  periodic task scheduler (paper trade monitoring + price broadcast)
+  • Celery Beat  periodic task scheduler (scans, fundamentals enrichment)
   • Next.js      npm run dev on :3000
 
 Prerequisites:
@@ -318,7 +318,7 @@ def main() -> None:
             "--loglevel=info",
             "--without-gossip",
             "--without-mingle",
-            "-Q", "scans,backtests,admin,default",
+            "-Q", "scans,admin,default",
         ]
         # billiard prefork pool uses POSIX shared memory that doesn't work on Windows
         if IS_WIN:

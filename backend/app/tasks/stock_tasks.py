@@ -6,7 +6,7 @@ Celery tasks for stock_master sync operations.
 Follows the exact structure of scanner_tasks.py:
   - Outer sync Celery task calls asyncio.run()
   - Inner async function creates its own local asyncpg pool
-    (same pattern as backtest_tasks._run_backtest_async)
+    (same pattern used here — see _sync_async below)
   - Windows asyncio policy set before each asyncio.run()
 """
 from __future__ import annotations
@@ -75,7 +75,7 @@ def enrich_fundamentals_batch():
 async def _sync_async(phases: list[str]) -> None:
     """
     Creates its own local asyncpg pool independent of the FastAPI global pool
-    (same pattern as _run_backtest_async in backtest_tasks.py).
+    (same pattern used throughout this module).
     """
     import json
     import asyncpg

@@ -7,11 +7,8 @@ import {
 } from "@mui/material";
 import {
   PlayArrow, Schedule, CheckCircleOutline,
-  TrendingUp, Visibility, DoNotDisturbAlt, BarChart,
+  TrendingUp, Visibility, DoNotDisturbAlt,
 } from "@mui/icons-material";
-import { PaperTradingPanel } from "@/components/domain/PaperTradingPanel";
-import { BacktestPanel } from "@/components/domain/BacktestPanel";
-import { useGetPositionsQuery } from "@/store/api/paperTradingApi";
 import { useSelector, useDispatch } from "react-redux";
 import { SignalTable } from "@/components/domain/SignalTable";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -420,13 +417,8 @@ export default function ScannerPage() {
   const streamingNoActCount   = useSelector(selectStreamingNoActCount);
   const scanPhaseMessage      = useSelector(selectScanPhaseMessage);
 
-  const [mainTab, setMainTab]       = useState(0);   // 0 = Signals, 1 = Paper Trading, 2 = Backtest
   const [activeTab, setActiveTab]   = useState<FilterTab>("ALL");
   const [page, setPage]             = useState(1);
-
-  // Paper Trading open positions count for badge
-  const { data: openPositions } = useGetPositionsQuery();
-  const openPositionsCount = openPositions?.length ?? 0;
 
   const isScanning = !!scanProgress;
 
@@ -622,223 +614,163 @@ export default function ScannerPage() {
           />
         </Tooltip>
 
-        {mainTab === 0 && (
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={
-              isTriggerLoading
-                ? <CircularProgress size={14} color="inherit" />
-                : <PlayArrow />
-            }
-            onClick={handleRunScan}
-            disabled={isTriggerLoading || isScanning}
-            sx={{ minWidth: 110 }}
-          >
-            {isTriggerLoading ? "Starting…" : "Run Scan"}
-          </Button>
-        )}
-      </Box>
-
-      {/* ── Main section tabs: Signals | Paper Trading | Backtest ── */}
-      <Box sx={{ borderBottom: "1px solid rgba(255,255,255,0.08)", mb: 2 }}>
-        <Tabs
-          value={mainTab}
-          onChange={(_, v) => setMainTab(v)}
-          variant="scrollable"
-          scrollButtons="auto"
-          allowScrollButtonsMobile
-          sx={{
-            minHeight: 40,
-            "& .MuiTab-root": { minHeight: 40, fontSize: "0.82rem", px: { xs: 1.5, sm: 2 } },
-            "& .MuiTabs-scrollButtons": { color: "text.secondary" },
-          }}
+        <Button
+          variant="contained"
+          size="small"
+          startIcon={
+            isTriggerLoading
+              ? <CircularProgress size={14} color="inherit" />
+              : <PlayArrow />
+          }
+          onClick={handleRunScan}
+          disabled={isTriggerLoading || isScanning}
+          sx={{ minWidth: 110 }}
         >
-          <Tab label="Signals" />
-          <Tab
-            label={
-              <Box display="flex" alignItems="center" gap={0.7}>
-                <TrendingUp sx={{ fontSize: 14 }} />
-                <span>Paper Trading</span>
-                {openPositionsCount > 0 && (
-                  <Chip
-                    label={openPositionsCount}
-                    size="small"
-                    sx={{
-                      height: 17,
-                      fontSize: "0.62rem",
-                      bgcolor: mainTab === 1 ? "rgba(34,197,94,0.25)" : "rgba(255,255,255,0.06)",
-                      color: mainTab === 1 ? "success.main" : "text.secondary",
-                      fontWeight: 600,
-                    }}
-                  />
-                )}
-              </Box>
-            }
-          />
-          <Tab
-            label={
-              <Box display="flex" alignItems="center" gap={0.7}>
-                <BarChart sx={{ fontSize: 14 }} />
-                <span>Backtest</span>
-              </Box>
-            }
-          />
-        </Tabs>
+          {isTriggerLoading ? "Starting…" : "Run Scan"}
+        </Button>
       </Box>
 
-      {/* ── Signals tab ─────────────────────────────────────────────────── */}
-      {mainTab === 0 && (
-        <>
-          {/* Scan meta */}
-          {latestScan && !isScanning && (
-            <Box display="flex" alignItems="center" gap={0.5} mb={2}>
-              <Schedule sx={{ fontSize: 13, color: "text.disabled" }} />
-              <Typography variant="caption" color="text.secondary">
-                Last scan: {formatIST(latestScan.triggered_at)}
-                {latestScan.universe_size != null && latestScan.universe_size > 0 &&
-                  ` · ${latestScan.universe_size.toLocaleString()} stocks scanned`}
-                {latestScan.signals_found != null && ` · ${latestScan.signals_found.toLocaleString()} signals found`}
-              </Typography>
-            </Box>
-          )}
-
-          {/* Scan detail panel (running) / completion card (just finished) */}
-          {scanProgress && (
-            <ScanDetailPanel
-              progress={scanProgress}
-              streamingSignals={streamingRaw}
-              scanStartedAt={scanStartedAt}
-              onStop={handleStopScan}
-              isStopping={isStopping}
-              buyCount={streamingBuyCount}
-              watchCount={streamingWatchCount}
-              noActCount={streamingNoActCount}
-              phaseMessage={scanPhaseMessage}
-            />
-          )}
-          {!scanProgress && lastCompletionSummary && (
-            <ScanCompletionCard summary={lastCompletionSummary} />
-          )}
-
-          {/* Signal filter tabs + table */}
-          <Card sx={{ mb: 0 }}>
-            <Box
-              sx={{
-                borderBottom: "1px solid rgba(255,255,255,0.06)",
-                display: "flex",
-                alignItems: "center",
-                px: 1,
-              }}
-            >
-              <Tabs
-                value={activeTab}
-                onChange={(_, v) => { setActiveTab(v); setPage(1); }}
-                variant="scrollable"
-                scrollButtons="auto"
-                allowScrollButtonsMobile
-                sx={{
-                  flex: 1,
-                  minHeight: 42,
-                  "& .MuiTab-root": { minHeight: 42, fontSize: "0.78rem", px: { xs: 1, sm: 1.5 } },
-                  "& .MuiTabs-scrollButtons": { color: "text.secondary" },
-                }}
-              >
-                {TABS.map(({ value, label, color }) => {
-                  const count = tabCount(value);
-                  return (
-                    <Tab
-                      key={value}
-                      value={value}
-                      label={
-                        <Box display="flex" alignItems="center" gap={0.6}>
-                          <span>{label}</span>
-                          {count != null && (
-                            <Chip
-                              label={count}
-                              size="small"
-                              sx={tabChipSx(color, activeTab === value)}
-                            />
-                          )}
-                        </Box>
-                      }
-                    />
-                  );
-                })}
-              </Tabs>
-            </Box>
-
-            {signalsError && !isScanning && (
-              <PageError
-                message="Could not load scan results"
-                detail="Ensure the API is reachable and a scan has been run"
-                onRetry={refetchSignals}
-              />
-            )}
-
-            {!signalsError && displaySignals.length === 0 && !isFetching ? (
-              isScanning ? (
-                <EmptyState
-                  title="Scan in progress — no signals yet"
-                  description={
-                    activeTab === "ALL"
-                      ? "Results will appear here as each batch of stocks completes"
-                      : `No ${activeTab === "BUY" ? "BUY" : activeTab === "WATCH" ? "Watch" : "No Action"} signals found yet — switch to the ALL tab to see everything streaming in`
-                  }
-                />
-              ) : (
-                <EmptyState
-                  title={
-                    activeTab === "BUY"
-                      ? "No BUY opportunities in the latest scan"
-                      : activeTab === "WATCH"
-                      ? "No stocks in Watch status"
-                      : latestScan
-                      ? "No signals match the selected filter"
-                      : "No scan has been run yet"
-                  }
-                  description={
-                    !latestScan
-                      ? "Click Run Scan to scan the full Master Stock List"
-                      : "Try a different filter or run a new scan"
-                  }
-                />
-              )
-            ) : !signalsError ? (
-              <SignalTable
-                signals={displaySignals}
-                loading={isFetching && !isScanning}
-              />
-            ) : null}
-
-            {!isScanning && totalPages > 1 && (
-              <Box display="flex" justifyContent="center" py={1.5} borderTop="1px solid rgba(255,255,255,0.06)">
-                <Pagination
-                  count={totalPages}
-                  page={page}
-                  onChange={(_, p) => setPage(p)}
-                  size="small"
-                  color="primary"
-                />
-              </Box>
-            )}
-          </Card>
-
-          {isScanning && streamingRaw.length > 0 && (
-            <Box mt={1} px={0.5}>
-              <Typography variant="caption" color="text.disabled">
-                Table shows {filteredStreaming.length} of {streamingRaw.length} signals matching current filter — results finalise when scan completes
-              </Typography>
-            </Box>
-          )}
-        </>
+      {/* Scan meta */}
+      {latestScan && !isScanning && (
+        <Box display="flex" alignItems="center" gap={0.5} mb={2}>
+          <Schedule sx={{ fontSize: 13, color: "text.disabled" }} />
+          <Typography variant="caption" color="text.secondary">
+            Last scan: {formatIST(latestScan.triggered_at)}
+            {latestScan.universe_size != null && latestScan.universe_size > 0 &&
+              ` · ${latestScan.universe_size.toLocaleString()} stocks scanned`}
+            {latestScan.signals_found != null && ` · ${latestScan.signals_found.toLocaleString()} signals found`}
+          </Typography>
+        </Box>
       )}
 
-      {/* ── Paper Trading tab ─────────────────────────────────────────────── */}
-      {mainTab === 1 && <PaperTradingPanel />}
+      {/* Scan detail panel (running) / completion card (just finished) */}
+      {scanProgress && (
+        <ScanDetailPanel
+          progress={scanProgress}
+          streamingSignals={streamingRaw}
+          scanStartedAt={scanStartedAt}
+          onStop={handleStopScan}
+          isStopping={isStopping}
+          buyCount={streamingBuyCount}
+          watchCount={streamingWatchCount}
+          noActCount={streamingNoActCount}
+          phaseMessage={scanPhaseMessage}
+        />
+      )}
+      {!scanProgress && lastCompletionSummary && (
+        <ScanCompletionCard summary={lastCompletionSummary} />
+      )}
 
-      {/* ── Backtest tab ──────────────────────────────────────────────────── */}
-      {mainTab === 2 && <BacktestPanel />}
+      {/* Signal filter tabs + table */}
+      <Card sx={{ mb: 0 }}>
+        <Box
+          sx={{
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            display: "flex",
+            alignItems: "center",
+            px: 1,
+          }}
+        >
+          <Tabs
+            value={activeTab}
+            onChange={(_, v) => { setActiveTab(v); setPage(1); }}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+            sx={{
+              flex: 1,
+              minHeight: 42,
+              "& .MuiTab-root": { minHeight: 42, fontSize: "0.78rem", px: { xs: 1, sm: 1.5 } },
+              "& .MuiTabs-scrollButtons": { color: "text.secondary" },
+            }}
+          >
+            {TABS.map(({ value, label, color }) => {
+              const count = tabCount(value);
+              return (
+                <Tab
+                  key={value}
+                  value={value}
+                  label={
+                    <Box display="flex" alignItems="center" gap={0.6}>
+                      <span>{label}</span>
+                      {count != null && (
+                        <Chip
+                          label={count}
+                          size="small"
+                          sx={tabChipSx(color, activeTab === value)}
+                        />
+                      )}
+                    </Box>
+                  }
+                />
+              );
+            })}
+          </Tabs>
+        </Box>
+
+        {signalsError && !isScanning && (
+          <PageError
+            message="Could not load scan results"
+            detail="Ensure the API is reachable and a scan has been run"
+            onRetry={refetchSignals}
+          />
+        )}
+
+        {!signalsError && displaySignals.length === 0 && !isFetching ? (
+          isScanning ? (
+            <EmptyState
+              title="Scan in progress — no signals yet"
+              description={
+                activeTab === "ALL"
+                  ? "Results will appear here as each batch of stocks completes"
+                  : `No ${activeTab === "BUY" ? "BUY" : activeTab === "WATCH" ? "Watch" : "No Action"} signals found yet — switch to the ALL tab to see everything streaming in`
+              }
+            />
+          ) : (
+            <EmptyState
+              title={
+                activeTab === "BUY"
+                  ? "No BUY opportunities in the latest scan"
+                  : activeTab === "WATCH"
+                  ? "No stocks in Watch status"
+                  : latestScan
+                  ? "No signals match the selected filter"
+                  : "No scan has been run yet"
+              }
+              description={
+                !latestScan
+                  ? "Click Run Scan to scan the full Master Stock List"
+                  : "Try a different filter or run a new scan"
+              }
+            />
+          )
+        ) : !signalsError ? (
+          <SignalTable
+            signals={displaySignals}
+            loading={isFetching && !isScanning}
+          />
+        ) : null}
+
+        {!isScanning && totalPages > 1 && (
+          <Box display="flex" justifyContent="center" py={1.5} borderTop="1px solid rgba(255,255,255,0.06)">
+            <Pagination
+              count={totalPages}
+              page={page}
+              onChange={(_, p) => setPage(p)}
+              size="small"
+              color="primary"
+            />
+          </Box>
+        )}
+      </Card>
+
+      {isScanning && streamingRaw.length > 0 && (
+        <Box mt={1} px={0.5}>
+          <Typography variant="caption" color="text.disabled">
+            Table shows {filteredStreaming.length} of {streamingRaw.length} signals matching current filter — results finalise when scan completes
+          </Typography>
+        </Box>
+      )}
     </Box>
   );
 }

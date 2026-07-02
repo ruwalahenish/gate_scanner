@@ -29,14 +29,24 @@ from app.core.analysis import indicators as ind
 
 
 def _try_window(df: pd.DataFrame, lb: int) -> Dict:
-    """Attempt to detect a consolidation box over the last `lb` bars."""
+    """
+    Attempt to detect a consolidation box over the `lb` bars PRECEDING the
+    latest bar.
+
+    The box must exclude the current/latest bar: breakout_state() classifies
+    that latest bar's Close against this box, and a candle's own High is
+    always >= its own Close, so a box whose window included the current bar
+    would make range_high >= current High >= current Close always — making
+    "close > range_high" (BREAKOUT_CONFIRMED / EXTENDED) mathematically
+    unreachable. The box represents the PRIOR range price is breaking out of.
+    """
     invalid = {
         "range_high": None, "range_low": None, "height_pct": None,
         "duration_bars": 0, "tightness": 0.0, "valid": False,
     }
-    if len(df) < max(lb, config.RANGE_MIN_DURATION):
+    if len(df) < max(lb, config.RANGE_MIN_DURATION) + 1:
         return invalid
-    window = df.iloc[-lb:]
+    window = df.iloc[-(lb + 1):-1]
     range_high = float(window["High"].max())
     range_low = float(window["Low"].min())
     if range_low <= 0 or range_high <= range_low:
@@ -45,7 +55,9 @@ def _try_window(df: pd.DataFrame, lb: int) -> Dict:
     if height_pct > config.RANGE_MAX_HEIGHT_PCT:
         return invalid
     atr_series = ind.atr(df, 14)
-    last_atr = atr_series.iloc[-1] if not atr_series.dropna().empty else None
+    # ATR as of the box's own last bar (not today's, which may already reflect
+    # the breakout's own volatility expansion) — a like-for-like tightness read.
+    last_atr = atr_series.iloc[-2] if len(atr_series.dropna()) >= 2 else None
     box_abs = range_high - range_low
     tightness = 0.0
     if last_atr is not None and not pd.isna(last_atr) and box_abs > 0 and last_atr > 0:
@@ -139,6 +151,55 @@ def breakout_state(df: pd.DataFrame, box: Dict) -> Dict:
         "distance_to_breakout_pct": float(distance_to_breakout_pct),
         "proximity_score": float(max(0.0, min(100.0, proximity))),
     }
+
+
+def count_level_tests(
+    df: pd.DataFrame,
+    level: float,
+    lookback: int,
+    tolerance: float,
+    exclude_bars: int = 0,
+) -> int:
+    """
+    Count how many times price approached `level` (within `tolerance`) and failed
+    to close decisively above it, in the `lookback` bars before the most recent
+    `exclude_bars` (typically the current box's own duration, so the in-progress
+    consolidation isn't miscounted as a failed test of its own high).
+
+    This operationalizes "a weak poke above that closes back inside the gate does
+    not count" (§7) applied to the *level itself*, not just the current candle:
+    a breakout at a level that has already failed repeatedly nearby is a chased/
+    whipsawed level, not a fresh gate — the dominant pattern behind the "too late"
+    and "wrong breakout point" reference charts.
+    """
+    if df is None or df.empty or level is None or level <= 0:
+        return 0
+    n = len(df)
+    end = max(0, n - exclude_bars)
+    start = max(0, end - lookback)
+    if end <= start:
+        return 0
+
+    highs = df["High"].values[start:end]
+    closes = df["Close"].values[start:end]
+    band_low = level * (1.0 - tolerance)
+
+    tests = 0
+    in_test = False
+    broke_through = False
+    for high, close in zip(highs, closes):
+        if high >= band_low:
+            if not in_test:
+                in_test, broke_through = True, False
+            if close > level:
+                broke_through = True
+        else:
+            if in_test and not broke_through:
+                tests += 1
+            in_test = False
+    if in_test and not broke_through:
+        tests += 1
+    return tests
 
 
 def analyze_range(df: pd.DataFrame, lookback: Optional[int] = None) -> Dict:

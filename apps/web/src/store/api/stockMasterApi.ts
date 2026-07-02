@@ -1,7 +1,6 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import { API_URL } from "@/lib/constants";
 import type {
-  BacktestTrade,
   Bar,
   Stock,
   StockFilters,
@@ -53,25 +52,6 @@ export const stockMasterApi = createApi({
       keepUnusedDataFor: 300,
       providesTags: (_r, _e, symbol) => [{ type: "Analysis", id: symbol }],
     }),
-    // Per-symbol backtest trade history
-    getStockBacktestTrades: builder.query<BacktestTrade[], { symbol: string; limit?: number }>({
-      query: ({ symbol, limit = 50 }) => ({
-        url: `/${symbol}/backtest-trades`,
-        params: { limit },
-      }),
-      providesTags: (_, __, { symbol }) => [{ type: "Stock", id: `bt-${symbol}` }],
-    }),
-    // Trigger a 7-year per-symbol backtest
-    triggerStockBacktest: builder.mutation<
-      { backtest_id: string; status: string },
-      { symbol: string; investment_per_stock: number }
-    >({
-      query: ({ symbol, investment_per_stock }) => ({
-        url: `/${symbol}/backtest`,
-        method: "POST",
-        body: { investment_per_stock },
-      }),
-    }),
   }),
 });
 
@@ -84,6 +64,4 @@ export const {
   useGetSyncStatusQuery,
   useGetStockChartDataQuery,
   useGetStockAnalysisQuery,
-  useGetStockBacktestTradesQuery,
-  useTriggerStockBacktestMutation,
 } = stockMasterApi;

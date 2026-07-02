@@ -174,40 +174,11 @@ async def _run_scan_async(scan_id: str, universe: list[str], mode: str):
         })
         log.info("scan_completed", scan_id=scan_id, signals=total_inserted, duration=round(duration, 1))
 
-        # ── Post-scan automation ─────────────────────────────────────────
-        trades_created = 0
+        # Bust dashboard cache so next request reflects new data immediately
         try:
-            from app.services.automation_service import auto_create_paper_trades
-            async with db_pool.acquire() as conn:
-                scan_signals = await conn.fetch(
-                    "SELECT * FROM signals WHERE scan_id=$1", sid
-                )
-                signals_list = [dict(r) for r in scan_signals]
-                # Normalise asyncpg Decimal/UUID types for automation functions
-                signals_list = [
-                    {k: (float(v) if hasattr(v, "__float__") and not isinstance(v, (int, float, bool)) else
-                         str(v) if hasattr(v, "hex") else v)  # UUID → str
-                     for k, v in row.items()}
-                    for row in signals_list
-                ]
-                trades_created = await auto_create_paper_trades(conn, signals_list)
-
-            await _publish("scan:post_process", {
-                "type": "scan.post_process",
-                "payload": {
-                    "scan_id": scan_id,
-                    "trades_created": trades_created,
-                },
-                "timestamp": _now(),
-            })
-            # Bust dashboard cache so next request reflects new data immediately
-            try:
-                await redis.delete("dashboard:stats")
-            except Exception:
-                pass
-            log.info("post_scan_automation_done", trades_created=trades_created)
-        except Exception as exc:
-            log.warning("post_scan_automation_failed", error=str(exc))
+            await redis.delete("dashboard:stats")
+        except Exception:
+            pass
 
     except Exception as exc:
         await _publish("scan:progress", {

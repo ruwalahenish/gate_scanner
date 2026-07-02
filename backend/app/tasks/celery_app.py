@@ -13,9 +13,7 @@ celery_app = Celery(
     backend=settings.redis_url,
     include=[
         "app.tasks.scanner_tasks",
-        "app.tasks.backtest_tasks",
         "app.tasks.stock_tasks",
-        "app.tasks.trading_tasks",
         "app.tasks.screener_tasks",
     ],
 )
@@ -51,19 +49,15 @@ celery_app.conf.update(
     task_default_queue="default",
     task_queues={
         "scans":    {"exchange": "scans",    "routing_key": "scans"},
-        "backtests": {"exchange": "backtests", "routing_key": "backtests"},
         "admin":    {"exchange": "admin",    "routing_key": "admin"},
         "default":  {"exchange": "default",  "routing_key": "default"},
     },
     task_routes={
         "app.tasks.scanner_tasks.run_scan_task":        {"queue": "scans"},
         "app.tasks.scanner_tasks.run_scheduled_scan":   {"queue": "scans"},
-        "app.tasks.backtest_tasks.run_backtest_task":   {"queue": "backtests"},
         "app.tasks.stock_tasks.sync_stock_master":      {"queue": "admin"},
         "app.tasks.stock_tasks.enrich_fundamentals_batch": {"queue": "admin"},
         "app.tasks.screener_tasks.sync_screener_fundamentals": {"queue": "admin"},
-        "app.tasks.trading_tasks.monitor_paper_trades_task":       {"queue": "default"},
-        "app.tasks.trading_tasks.broadcast_position_prices_task":  {"queue": "default"},
     },
 
     # TLS for Upstash — rediss:// requires explicit ssl_cert_reqs
@@ -97,16 +91,6 @@ celery_app.conf.update(
             "task": "app.tasks.stock_tasks.enrich_fundamentals_batch",
             "schedule": crontab(minute="*/15"),
             "options": {"queue": "admin"},
-        },
-        "monitor-paper-trades": {
-            "task": "app.tasks.trading_tasks.monitor_paper_trades_task",
-            "schedule": crontab(minute="*/5"),
-            "options": {"queue": "default"},
-        },
-        "broadcast-position-prices": {
-            "task": "app.tasks.trading_tasks.broadcast_position_prices_task",
-            "schedule": crontab(minute="*/2"),
-            "options": {"queue": "default"},
         },
     },
 )
