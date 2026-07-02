@@ -1,6 +1,11 @@
 {
   "version": 1,
   "skills": {
+    "breakout-trade-planner": {
+      "source": "tradermonty/claude-trading-skills",
+      "sourceType": "github",
+      "computedHash": "0f77399d1f24ce5fac116e00dbb186ef38c694e4011724b57420ded0125325c4"
+    },
     "fastapi-python": {
       "source": "Mindrally/skills",
       "sourceType": "github",
@@ -37,6 +42,16 @@
       "source": "anthropics/skills",
       "sourceType": "github",
       "computedHash": "7e3c9cd74e9e2b4828527a857170e86310f2dab5ea8030a9043df2c7e6c88857"
+    },
+    "trading-plan-generator": {
+      "source": "jamesrochabrun/skills",
+      "sourceType": "github",
+      "computedHash": "5419d3d92ae794131f463c2dd0727b00425e7de748c2eddf42a9a4382206b27a"
+    },
+    "trading-strategies": {
+      "source": "agentmc15/polymarket-trader",
+      "sourceType": "github",
+      "computedHash": "6e1f4ba1ad82ef825935bb3821eee699b7e6cd75f33214cae894ac2aaa3d8fb9"
     }
   }
 }
